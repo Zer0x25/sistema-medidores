@@ -4,12 +4,40 @@ Este archivo actúa como **memoria persistente y tablero de control** para human
 
 ---
 
-## 🧭 Fase Actual: Remarcadores Jerárquicos y Balances de Consumo (feat-029)
+## 🧭 Fase Actual: Gráficos de Barras Bajo Demanda (feat-032)
 
 - **Proyecto:** `Medidores`
 - **Estado:** Estable. Remarcadores con padre opcional, múltiples hijos y niveles, vínculos con vigencia y auditoría transaccional, consumo entre lecturas visible en Modo Terreno, balance por sectores en Reportes y totales por raíces sin doble conteo en Dashboard/CSV/facturas.
-- **Spec Activo:** `specs/feat-029-remarcadores-y-balances-consumo.md`.
-- **Última verificación de Quality Gate:** `./scripts/verify.sh` salida 0, 339/339 Vitest, typecheck y lint sin errores; build de producción correcto; 9/9 E2E seleccionados y `npm run test:contract` correctos contra almacenamiento aislado.
+- **Spec Activo:** `specs/feat-032-graficos-barras-bajo-demanda.md`.
+- **Última verificación de Quality Gate:** `./scripts/verify.sh` salida 0, 355/355 Vitest, typecheck y lint sin errores; build, 4/4 Playwright de gráficos y test:contract correctos sobre almacenamiento aislado. Revisión visual adicional de la demo real en 3002 sin mutar sus datos.
+
+## Gráficos de barras y detalle bajo demanda: completado
+
+- **Fecha:** 2026-10-15. Solicitud explícita: barras, contenido acotado y carga eficiente.
+- La UI usa `GET /api/dashboard/graficos?vista=resumen`, sin series; el adaptador SQLite materializa como máximo cuatro referencias por equipo, conservando evidencia de factores incompatibles/decrementos y los mismos totales de raíces. `/graficos` completo y `/series` conservan compatibilidad.
+- `GET /api/dashboard/intervalos`: un medidor, 30 registros por página (máximo API 60), orden reciente primero, count/skip/take y una referencia anterior fuera de la página/filtro. RBAC y territorio fail-closed.
+- Barras temporales de un equipo, consulta al visualizar el panel, paginación y actualización explícita. AbortController para consultas obsoletas, deduplicación en curso y protección contra respuestas tardías. Resize solo redibuja.
+- Nuevo módulo presentacional `public/js/dashboard-charts.js`; detalle sin filas al estar cerrado, máximo 30 al abrir, scroll interno acotado y filas reemplazadas por página. Sedes paginadas de 12 en 12; magnitudes separadas, estados/reintento y PWA actualizada.
+- Medición en la demo de 2.196 lecturas: respuesta anterior **2.168.147 bytes**, resumen **9.917 bytes** y página de 30 **32.664 bytes**; aproximadamente **98% menos transferencia de gráficos** al cargar resumen y un equipo. No representa una medición del tráfico total de la aplicación.
+- Evidencia temporal: `/tmp/dashboard-demanda-{roja.log,verde.log,gate.log,e2e.log,build.log,contract.log,payload.json}`, capturas desktop/móvil reales en `/tmp/dashboard-demanda-{desktop,mobile}-real.png`. 4/4 E2E verifican carga por visibilidad, filas/payload acotados, navegación, reintento, deduplicación, obsoletos y zero overflow 320/375/425/768/1024. Base demo del usuario conservada.
+
+## Demo histórica local: activada
+
+- **Fecha:** 2026-10-15. Reinicio local y carga histórica autorizados explícitamente por el usuario.
+- Nueva base local activa: `prisma/prisma/demo-historico-20261015.db`, seleccionada en `.env` ignorado; puerto **3002**. La base anterior `prisma/prisma/dev.db` se conserva y además tiene respaldo consistente verificado en `backups/pre-seed-historico-2026-10-15T10-16-43-412Z.db` (212 medidores y 295 lecturas previas).
+- **Datos:** 3 instalaciones, 36 medidores y 2.196 lecturas. Agua/M3, Luz/KWH y Gas/M3; por sede/recurso un general, dos hijos y un nieto, con 27 vínculos históricos auditados. **61 lecturas por equipo y 60 intervalos**, desde `2026-08-16T09:00:00.000Z` hasta `2026-10-15T09:00:00.000Z`.
+- Variación semanal, tendencia y picos controlados; factores snapshot 1, lectura de apertura, cronología uniforme y fechas de alta/vínculo anteriores al histórico. Balances calculados con saldos positivos y distribución comparable entre sedes.
+- Usuarios `admin@medidores.cl`, `supervisor@medidores.cl`, `operador@medidores.cl`, clave demo `demo1234`. Operador con tres sedes y supervisor con Planta Norte.
+- `scripts/seed-historico.ts` siembra únicamente bases vacías en development/test; no elimina ni altera datos existentes ni auditorías. Ejecutar tras aprovisionar el esquema mediante `DATABASE_URL=file:/ruta/base-nueva.db npx tsx scripts/seed-historico.ts`.
+- Validación: 351/351 tests; `/readyz`, login, KPIs y `/dashboard/graficos` correctos en 3002 tras reiniciar el watcher existente. Chromium comprobó 60 consumos por serie, resumen de intervalos y zero overflow en 320/375/425/768/1024 px. Evidencia temporal en `/tmp/seed-historico-{gate.log,qa.json,resultado.json}` y `/tmp/seed-historico-graficos-activos.png`. Servicio ajeno en 3000 conservado.
+
+## Gráficos de consumo: corrección completada
+
+- **Fecha:** 2026-10-15. Solicitud: visualizar consumo en lugar de lecturas acumuladas.
+- Nuevo contrato `GET /api/dashboard/graficos`; `/series` conserva su contrato de lecturas. Línea con deltas consecutivos calculados en backend, sin reaplicar factor; datos desconocidos como null y huecos en la línea, cero confirmado visible.
+- Barras y dona consumen agregados del período filtrado: raíces históricas sin doble conteo, consumo propio al seleccionar un equipo, fechas reales y cobertura. Selector por recurso/unidad; dona por participación de consumo entre sedes, únicamente con períodos comparables.
+- Todos los filtros afectan a los gráficos; día final local completo, descarte de respuestas antiguas, resumen accesible de cada intervalo, redibujo al redimensionar y shell PWA actualizado. Los modos NIVEL/INSTANTANEO mantienen sus funciones existentes en Reportes.
+- Evidencia temporal: `/tmp/graficos-consumo-roja.log`, `/tmp/graficos-ui-roja.log`, `/tmp/graficos-consumo-gate.log`, `/tmp/graficos-consumo-e2e.log`, `/tmp/graficos-consumo-contract.log`, `/tmp/graficos-consumo-mobile.png`. Navegador verifica datos reales entregados a los tres renderers, huecos/cero y ausencia de overflow a 320/375/425/768/1024 px. SQLite de pruebas aislado en `/tmp`, sin cambios de datos locales.
 
 ---
 
@@ -26,6 +54,18 @@ Este archivo actúa como **memoria persistente y tablero de control** para human
 - **Límites de esta entrega:** balance jerárquico ACUMULATIVO con recurso/unidad idénticos y timestamps de apertura/cierre alineados, sin interpolación; historial con factores desconocidos se marca no comparable. NIVEL/INSTANTANEO conservan su cálculo anterior. Sin sincronización del repositorio Edge. Commit y push del repositorio padre autorizados explícitamente por el usuario el 2026-10-15.
 
 ## 📋 Registro de Hitos
+
+- [x] **Hito 15.14: Gráficos de barras y consultas bajo demanda (Completado: 2026-10-15)**
+  - Spec `feat-032`, SQL de resumen compacto y paginación de intervalos, barras por equipo y detalle diferido/acotado.
+  - Gate 355/355, 4/4 Playwright, build y contrato correctos; revisión visual desktop/móvil y medición de transferencia con la demo real.
+
+- [x] **Hito 15.13: Demo histórica local de dos meses (Completado: 2026-10-15)**
+  - Spec `chore-031`, semilla reproducible sobre base nueva, respaldo consistente y activación local verificable sin eliminar la base original.
+  - 3 sedes, 36 equipos, 2.196 lecturas y 60 intervalos por equipo; jerarquías, factores y períodos comparables. Gate 351/351, API y navegador correctos.
+
+- [x] **Hito 15.12: Gráficos de consumo entre lecturas (Completado: 2026-10-15)**
+  - Spec `fix-030`, fases roja/verde, contratos Zod, 348/348 Vitest y 3/3 Playwright de gráficos; typecheck, lint, build y test:contract correctos.
+  - Línea de consumos, barras/dona con filtros y períodos reales, magnitudes separadas, resumen accesible y adaptación móvil.
 
 - [x] **Hito 15.11: Remarcadores Jerárquicos y Balances de Consumo (Completado: 2026-10-15)**
   - Spec `feat-029`; contratos Zod, pruebas rojas/verde, Prisma regenerado y sincronización aditiva con respaldo local.
@@ -288,8 +328,8 @@ Este archivo actúa como **memoria persistente y tablero de control** para human
 ---
 
 ## 🎯 Especificación Activa
-- **Archivo:** `specs/feat-028-dashboard-graficos-series.md`
-- **Módulo objetivo:** Dashboard con gráficos por medidor/instalación/recurso. Completado y verificado.
+- **Archivo:** `specs/feat-032-graficos-barras-bajo-demanda.md`
+- **Módulo objetivo:** Gráficos de barras y detalle paginado bajo demanda. Completado y verificado.
 
 ---
 

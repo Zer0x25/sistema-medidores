@@ -1,4 +1,4 @@
-import { construirBalance, EquipoConsumo, VinculoConsumo } from "../consumos/consumos.service.js";
+import { calcularConsumo, construirBalance, EquipoConsumo, VinculoConsumo } from "../consumos/consumos.service.js";
 import {
   DashboardKpisResponse,
   MedidorDesatendido,
@@ -8,6 +8,10 @@ import {
   DashboardSerieQuery,
   InstalacionNoAsignadaError,
   RangoFechasInvalidoError,
+  DashboardGraficosResponse,
+  DashboardGraficosQuery,
+  DashboardIntervalosQuery,
+  DashboardIntervalosResponse,
 } from "./dashboard.schema.js";
 
 export interface RawInstalacion {
@@ -56,10 +60,100 @@ export interface RawRecarga {
 
 export interface IDashboardRepository {
   getDashboardData(allowedInstalacionIds?: string[]): Promise<DashboardRawData>;
+  getGraphSummaryData?(filtro: DashboardSerieQuery, allowedInstalacionIds?: string[]): Promise<DashboardRawData>;
+  getIntervalos?(filtro: DashboardIntervalosQuery, allowedInstalacionIds?: string[]): Promise<{ medidor: RawMedidor | null; lecturas: RawLectura[]; total: number }>;
 }
 
 export class DashboardService {
   constructor(private readonly repository: IDashboardRepository) {}
+
+  async obtenerGraficos(filtro: DashboardGraficosQuery, allowedInstalacionIds?: string[]): Promise<DashboardGraficosResponse> {
+    if (filtro.fechaInicio && filtro.fechaFin && filtro.fechaInicio > filtro.fechaFin) {
+      throw new RangoFechasInvalidoError(filtro.fechaInicio, filtro.fechaFin);
+    }
+    if (filtro.instalacionId && allowedInstalacionIds !== undefined && !allowedInstalacionIds.includes(filtro.instalacionId)) {
+      throw new InstalacionNoAsignadaError(filtro.instalacionId);
+    }
+    const data = filtro.vista === "resumen" && this.repository.getGraphSummaryData
+      ? await this.repository.getGraphSummaryData(filtro, allowedInstalacionIds)
+      : await this.repository.getDashboardData(allowedInstalacionIds);
+    const equipos: EquipoConsumo[] = data.medidores.filter(m => m.tipoMedicion === "ACUMULATIVO"
+      && (allowedInstalacionIds === undefined || allowedInstalacionIds.includes(m.instalacionId))
+      && (!filtro.instalacionId || m.instalacionId === filtro.instalacionId)
+      && (!filtro.medidorId || (m.id === filtro.medidorId && m.activo))
+      && (!filtro.recurso || m.recurso === filtro.recurso))
+      .map(m => ({ ...m, createdAt: m.createdAt ?? new Date(0), medidorPadreId: m.medidorPadreId ?? null,
+        vinculos: m.vinculos ?? [], lecturas: data.lecturas.filter(l => l.medidorId === m.id)
+          .sort((a, b) => a.fechaLectura.getTime() - b.fechaLectura.getTime() || a.valor - b.valor) }))
+      .filter(m => m.activo || m.lecturas.length > 0);
+    const grupos: DashboardGraficosResponse["grupos"] = [];
+    for (const equipo of equipos) {
+      if (grupos.some(g => g.recurso === equipo.recurso && g.unidad === equipo.unidad)) continue;
+      const miembros = equipos.filter(m => m.recurso === equipo.recurso && m.unidad === equipo.unidad);
+      const series = (filtro.vista === "resumen" ? [] : miembros.filter(m => m.activo)).map(m => ({
+        medidorId: m.id, medidorCodigo: m.codigo, instalacionId: m.instalacionId,
+        instalacionNombre: data.medidores.find(raw => raw.id === m.id)!.instalacionNombre,
+        recurso: m.recurso, unidad: m.unidad,
+        puntos: m.lecturas.map((l, i) => {
+          const detalle = calcularConsumo({ ...m, lecturas: m.lecturas.slice(Math.max(0, i - 1), i + 1) });
+          return { fecha: l.fechaLectura, valor: detalle.consumo, detalle };
+        }).filter(p => (!filtro.fechaInicio || p.fecha >= filtro.fechaInicio) && (!filtro.fechaFin || p.fecha <= filtro.fechaFin))
+          .slice(-(filtro.limite ?? 100)),
+      }));
+      const consumos: DashboardGraficosResponse["grupos"][number]["consumos"] = [];
+      for (const instalacionId of new Set(miembros.map(m => m.instalacionId))) {
+        const sede = miembros.filter(m => m.instalacionId === instalacionId);
+        const fechas = sede.flatMap(m => m.lecturas.map(l => l.fechaLectura.getTime()));
+        const inicio = filtro.fechaInicio ?? new Date(fechas.reduce((a, b) => Math.min(a, b), fechas[0] ?? 0));
+        const fin = filtro.fechaFin ?? new Date(fechas.reduce((a, b) => Math.max(a, b), fechas[0] ?? 0));
+        const propio = filtro.medidorId ? calcularConsumo(sede[0], inicio, fin) : null;
+        const total = propio ? {
+          consumo: propio.consumo, estado: propio.estado === "NO_APLICA" ? "NO_COMPARABLE" as const : propio.estado,
+          cobertura: propio.cobertura, fechaInicialReal: propio.lecturaInicial?.fechaLectura ?? null,
+          fechaFinalReal: propio.lecturaFinal?.fechaLectura ?? null,
+        } : construirBalance(instalacionId, sede, inicio, fin).totales[0];
+        consumos.push({ instalacionId,
+          instalacionNombre: data.medidores.find(m => m.instalacionId === instalacionId)!.instalacionNombre,
+          recurso: equipo.recurso, unidad: equipo.unidad, consumoNeto: total?.consumo ?? null,
+          estadoConsumo: total?.estado ?? "DATOS_INSUFICIENTES", cobertura: total?.cobertura ?? "INSUFICIENTE",
+          fechaInicialReal: total?.fechaInicialReal ?? null, fechaFinalReal: total?.fechaFinalReal ?? null,
+          cantidadMedidores: sede.length,
+        });
+      }
+      const referencia = consumos[0];
+      const distribucionComparable = consumos.length > 0 && consumos.every(c => c.estadoConsumo === "CALCULADO"
+        && c.fechaInicialReal?.getTime() === referencia.fechaInicialReal?.getTime()
+        && c.fechaFinalReal?.getTime() === referencia.fechaFinalReal?.getTime());
+      const medidores = miembros.filter(m => m.activo).map(m => ({ medidorId: m.id, medidorCodigo: m.codigo,
+        instalacionId: m.instalacionId, instalacionNombre: data.medidores.find(raw => raw.id === m.id)!.instalacionNombre }));
+      grupos.push({ recurso: equipo.recurso, unidad: equipo.unidad, series, medidores, consumos, distribucionComparable });
+    }
+    return { grupos };
+  }
+
+  async obtenerIntervalos(filtro: DashboardIntervalosQuery, allowedInstalacionIds?: string[]): Promise<DashboardIntervalosResponse> {
+    if (filtro.fechaInicio && filtro.fechaFin && filtro.fechaInicio > filtro.fechaFin) throw new RangoFechasInvalidoError(filtro.fechaInicio, filtro.fechaFin);
+    if (filtro.instalacionId && allowedInstalacionIds !== undefined && !allowedInstalacionIds.includes(filtro.instalacionId)) throw new InstalacionNoAsignadaError(filtro.instalacionId);
+    // Adaptadores antiguos mantienen compatibilidad; Prisma usa siempre la consulta paginada.
+    let data: { medidor: RawMedidor | null; lecturas: RawLectura[]; total: number };
+    if (this.repository.getIntervalos) data = await this.repository.getIntervalos(filtro, allowedInstalacionIds);
+    else {
+      const raw = await this.repository.getDashboardData(allowedInstalacionIds);
+      const medidor = raw.medidores.find(m => m.id === filtro.medidorId && m.activo
+        && (!filtro.instalacionId || m.instalacionId === filtro.instalacionId)
+        && (!filtro.recurso || m.recurso === filtro.recurso)) ?? null;
+      const todas = raw.lecturas.filter(l => l.medidorId === medidor?.id).sort((a, b) => b.fechaLectura.getTime() - a.fechaLectura.getTime());
+      const cierres = todas.filter(l => (!filtro.fechaInicio || l.fechaLectura >= filtro.fechaInicio) && (!filtro.fechaFin || l.fechaLectura <= filtro.fechaFin));
+      const pagina = cierres.slice((filtro.pagina - 1) * filtro.tamanio, filtro.pagina * filtro.tamanio);
+      const anterior = todas.find(l => pagina.at(-1) && l.fechaLectura < pagina.at(-1)!.fechaLectura);
+      data = { medidor, lecturas: anterior ? [...pagina, anterior] : pagina, total: cierres.length };
+    }
+    const items = data.medidor ? data.lecturas.slice(0, Math.min(filtro.tamanio, Math.max(0, data.total - (filtro.pagina - 1) * filtro.tamanio)))
+      .map((l, i) => calcularConsumo({ id: data.medidor!.id, unidad: data.medidor!.unidad, tipoMedicion: data.medidor!.tipoMedicion,
+        lecturas: data.lecturas[i + 1] ? [data.lecturas[i + 1], l] : [l] })) : [];
+    return { medidorCodigo: data.medidor?.codigo ?? null, unidad: data.medidor?.unidad ?? null,
+      pagina: filtro.pagina, tamanio: filtro.tamanio, total: data.total, totalPaginas: Math.ceil(data.total / filtro.tamanio), items };
+  }
 
   async obtenerKpis(allowedInstalacionIds?: string[]): Promise<DashboardKpisResponse> {
     const data = await this.repository.getDashboardData(allowedInstalacionIds);

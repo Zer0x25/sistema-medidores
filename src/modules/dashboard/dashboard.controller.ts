@@ -1,10 +1,32 @@
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { DashboardService } from "./dashboard.service.js";
-import { DashboardSerieQuerySchema } from "./dashboard.schema.js";
+import { DashboardSerieQuerySchema, DashboardGraficosQuerySchema, DashboardIntervalosQuerySchema } from "./dashboard.schema.js";
 import { isDomainError } from "../../core/errors.js";
 
 export function createDashboardController(service: DashboardService): FastifyPluginAsync {
   return async function (fastify: FastifyInstance) {
+    fastify.get("/dashboard/intervalos", async (request: FastifyRequest, reply: FastifyReply) => {
+      const parsed = DashboardIntervalosQuerySchema.safeParse(request.query);
+      if (!parsed.success) return reply.status(400).send({ error: "VALIDATION_ERROR", message: "Página de intervalos inválida", details: parsed.error.format() });
+      try {
+        const user = (request as unknown as { user?: { allowedInstalacionIds?: string[] } }).user;
+        return reply.send(await service.obtenerIntervalos(parsed.data, user?.allowedInstalacionIds));
+      } catch (error) {
+        if (isDomainError(error)) return reply.status(error.statusCode).send({ error: error.code, message: error.message, details: error.details });
+        throw error;
+      }
+    });
+    fastify.get("/dashboard/graficos", async (request: FastifyRequest, reply: FastifyReply) => {
+      const parsed = DashboardGraficosQuerySchema.safeParse(request.query);
+      if (!parsed.success) return reply.status(400).send({ error: "VALIDATION_ERROR", message: "Parámetros de gráficos inválidos", details: parsed.error.format() });
+      try {
+        const user = (request as unknown as { user?: { allowedInstalacionIds?: string[] } }).user;
+        return reply.send(await service.obtenerGraficos(parsed.data, user?.allowedInstalacionIds));
+      } catch (error) {
+        if (isDomainError(error)) return reply.status(error.statusCode).send({ error: error.code, message: error.message, details: error.details });
+        throw error;
+      }
+    });
     fastify.get("/dashboard/kpis", async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const user = (request as unknown as { user?: { allowedInstalacionIds?: string[] } }).user;

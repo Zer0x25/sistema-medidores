@@ -170,6 +170,7 @@ class ApiClient {
 
       return data;
     } catch (err) {
+      if (err.name === "AbortError") throw err;
       if (err instanceof ApiError) {
         throw err;
       }
@@ -255,6 +256,14 @@ class ApiClient {
     getKpis: () => this.request("/api/dashboard/kpis"),
     getDesatendidos: (horas = 24) => this.request(`/api/dashboard/desatendidos?horas=${horas}`),
     getConsumos: () => this.request("/api/dashboard/consumos"),
+    getGraficos: (params = {}, options = {}) => {
+      const q = new URLSearchParams();
+      for (const [clave, valor] of Object.entries(params)) {
+        if (valor !== undefined && valor !== "") q.set(clave, String(valor));
+      }
+      return this.request(`/api/dashboard/graficos?${q}`, options);
+    },
+    getIntervalos: (params, options = {}) => this.request(`/api/dashboard/intervalos?${new URLSearchParams(params)}`, options),
     getActividadReciente: (limit = 10) => this.request(`/api/dashboard/actividad-reciente?limit=${limit}`),
     getSeries: (params = {}) => {
       const q = new URLSearchParams();

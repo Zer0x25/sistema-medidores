@@ -1,4 +1,4 @@
-const CACHE_NAME = "medidores-shell-v3-remarcadores-v1";
+const CACHE_NAME = "medidores-shell-v3-graficos-demanda-v1";
 const ASSETS_TO_CACHE = [
   "/",
   "/index.html",
@@ -8,6 +8,8 @@ const ASSETS_TO_CACHE = [
   "/css/components.css",
   "/js/theme.js",
   "/js/api.js",
+  "/js/charts.js",
+  "/js/dashboard-charts.js",
   "/js/components.js",
   "/js/sync-manager.js",
   "/icon.svg",

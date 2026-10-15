@@ -531,7 +531,7 @@
       <!-- Análisis Gráfico por Medidor / Instalación / Recurso (feat-028) -->
       <div class="card mt-6" id="seccionGraficos" data-testid="seccion-graficos">
         <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
-          <h2 class="card-title">📊 Análisis Gráfico de Telemetría</h2>
+          <h2 class="card-title">📊 Análisis de consumo</h2>
           <button class="btn btn-ghost btn-sm" data-testid="btn-refrescar-graficos" onclick="cargarGraficosDashboard()">Refrescar gráficos</button>
         </div>
         <div class="reports-filter-grid" style="padding: 0 1.25rem;">
@@ -539,12 +539,6 @@
             <label for="filtroGraficoInstalacion" class="form-label">Sede:</label>
             <select id="filtroGraficoInstalacion" class="form-select" data-testid="filtro-grafico-instalacion" onchange="cargarGraficosDashboard()">
               <option value="">Todas las sedes</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label for="filtroGraficoMedidor" class="form-label">Medidor:</label>
-            <select id="filtroGraficoMedidor" class="form-select" data-testid="filtro-grafico-medidor" onchange="cargarGraficosDashboard()">
-              <option value="">Todos los medidores</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
@@ -565,19 +559,52 @@
             <label for="filtroGraficoHasta" class="form-label">Hasta:</label>
             <input type="date" id="filtroGraficoHasta" class="form-input" data-testid="filtro-grafico-hasta" onchange="cargarGraficosDashboard()">
           </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="filtroGraficoMagnitud" class="form-label">Magnitud a visualizar:</label>
+            <select id="filtroGraficoMagnitud" class="form-select" data-testid="filtro-grafico-magnitud" onchange="cambiarMagnitudGrafico()">
+              <option value="">Sin datos</option>
+            </select>
+          </div>
         </div>
+        <p id="estadoGraficos" role="status" class="graficos-ayuda">Selecciona recurso y unidad para comparar consumos.</p>
         <div class="charts-grid">
-          <div class="chart-card">
-            <h3 class="chart-title">Evolución por medidor</h3>
-            <canvas id="chartEvolucionMedidor" data-testid="chart-evolucion-medidor" role="img" aria-label="Gráfico de evolución de lecturas por medidor">Tu navegador no soporta canvas.</canvas>
+          <div class="chart-card" id="panelEvolucion" data-testid="panel-evolucion">
+            <div class="grafico-cabecera">
+              <div><h3 class="chart-title">Consumo por intervalo</h3><p class="graficos-ayuda">Una barra por lectura, descontando la anterior.</p></div>
+              <div class="form-group">
+                <label for="filtroGraficoMedidor" class="form-label">Medidor a consultar</label>
+                <select id="filtroGraficoMedidor" class="form-select" data-testid="filtro-grafico-medidor" onchange="cambiarMedidorGrafico()"><option value="">Selecciona un medidor</option></select>
+              </div>
+            </div>
+            <p id="evolucionEstado" role="status" data-testid="estado-evolucion">El historial se carga al visualizar este panel.</p>
+            <button id="reintentarEvolucion" class="btn btn-secondary" data-testid="btn-reintentar-evolucion" onclick="cargarIntervalosGrafico(true)" hidden>Reintentar</button>
+            <canvas id="chartEvolucionMedidor" data-testid="chart-evolucion-medidor" role="img" aria-label="Barras de consumo entre lecturas" aria-describedby="evolucionEstado">Abre el detalle de esta página para consultar los valores.</canvas>
+            <div class="grafico-paginacion">
+              <button id="intervalosRecientes" class="btn btn-secondary" data-testid="btn-intervalos-recientes" onclick="cambiarPaginaIntervalos(-1)" disabled>← Más recientes</button>
+              <span id="paginaIntervalosInfo" aria-live="polite">Sin registros</span>
+              <button id="intervalosAntiguos" class="btn btn-secondary" data-testid="btn-intervalos-antiguos" onclick="cambiarPaginaIntervalos(1)" disabled>Más antiguos →</button>
+            </div>
+            <details id="detalleIntervalos" data-testid="detalle-intervalos" ontoggle="alternarDetalleIntervalos()">
+              <summary>Ver detalle de esta página</summary>
+              <div id="tablaIntervalos" class="intervalos-scroll" data-testid="tabla-intervalos" tabindex="0" aria-label="Detalle de consumos de la página"></div>
+            </details>
           </div>
           <div class="chart-card">
             <h3 class="chart-title">Consumo por instalación</h3>
             <canvas id="chartConsumoInstalacion" data-testid="chart-consumo-instalacion" role="img" aria-label="Gráfico de barras de consumo por instalación">Tu navegador no soporta canvas.</canvas>
           </div>
           <div class="chart-card">
-            <h3 class="chart-title">Distribución por recurso</h3>
-            <canvas id="chartDistribucionRecurso" data-testid="chart-distribucion-recurso" role="img" aria-label="Gráfico de dona de medidores por recurso">Tu navegador no soporta canvas.</canvas>
+            <h3 class="chart-title">Distribución del consumo por instalación</h3>
+            <canvas id="chartDistribucionRecurso" data-testid="chart-distribucion-recurso" role="img" aria-label="Participación del consumo por instalación" aria-describedby="resumenGraficos">Consulta el resumen de consumo debajo de los gráficos.</canvas>
+          </div>
+        </div>
+        <div class="resumen-graficos">
+          <h3 class="chart-title">Consumo del período por sede</h3>
+          <div id="resumenGraficos" data-testid="resumen-graficos" class="intervalos-scroll"></div>
+          <div class="grafico-paginacion">
+            <button id="sedesAnteriores" class="btn btn-secondary" onclick="cambiarPaginaSedes(-1)" disabled>← Anteriores</button>
+            <span id="paginaSedesInfo" aria-live="polite"></span>
+            <button id="sedesSiguientes" class="btn btn-secondary" onclick="cambiarPaginaSedes(1)" disabled>Siguientes →</button>
           </div>
         </div>
       </div>
@@ -2228,6 +2255,7 @@
   <script src="/js/theme.js"></script>
   <script src="/js/components.js"></script>
   <script src="/js/charts.js"></script>
+  <script src="/js/dashboard-charts.js"></script>
   <script src="/js/sync-manager.js"></script>
   <script src="/app.js"></script>
   <div class="modal-backdrop" id="modalCambiarPadre" data-testid="modal-cambiar-padre" data-state="closed" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="tituloCambiarPadre">

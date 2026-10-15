@@ -6,6 +6,7 @@ import {
   DashboardRawData,
 } from "../../../src/modules/dashboard/dashboard.service.js";
 import { createDashboardController } from "../../../src/modules/dashboard/dashboard.controller.js";
+import { DashboardGraficosResponseSchema } from "../../../src/modules/dashboard/dashboard.schema.js";
 
 class InMemorySeriesRepo implements IDashboardRepository {
   public data: DashboardRawData = { instalaciones: [], medidores: [], lecturas: [], recargas: [] };
@@ -69,6 +70,89 @@ describe("DashboardSeries Suite (feat-028 Fase Roja)", () => {
     expect(series.length).toBe(1);
     expect(series[0].medidorCodigo).toBe("MED-AG-01");
     expect(series[0].puntos.map((p) => p.valor)).toEqual([100, 130, 150]);
+  });
+
+  it("gráficos muestran deltas 30 y 20, primera lectura desconocida y cero confirmado", async () => {
+    const resultado = await service.obtenerGraficos({ medidorId: med1, limite: 100 });
+    expect(DashboardGraficosResponseSchema.safeParse(resultado).success).toBe(true);
+    expect(resultado.grupos[0].series[0].puntos.map(p => p.valor)).toEqual([null, 30, 20]);
+    expect(resultado.grupos[0].series[0].puntos[1].detalle).toMatchObject({
+      lecturaInicial: { valor: 100, fechaLectura: t0 }, lecturaFinal: { valor: 130, fechaLectura: t1 },
+    });
+    repository.data.lecturas.push({ id: "igual", medidorId: med1, valor: 150, fechaLectura: t3, operadorId: "op1" });
+    const cero = await service.obtenerGraficos({ medidorId: med1, limite: 1 });
+    expect(cero.grupos[0].series[0].puntos[0].valor).toBe(0);
+    expect(cero.grupos[0].consumos[0].consumoNeto).toBe(50);
+  });
+
+  it("filtro y límite mantienen la lectura anterior fuera del rango sin multiplicar dos veces", async () => {
+    repository.data.lecturas.forEach(l => { l.multiplicadorAplicado = 10; });
+    const r = await service.obtenerGraficos({ medidorId: med1, fechaInicio: t1, fechaFin: t2, limite: 1 });
+    expect(r.grupos[0].series[0].puntos.map(p => p.valor)).toEqual([20]);
+    expect(r.grupos[0].consumos[0]).toMatchObject({ consumoNeto: 20, fechaInicialReal: t1, fechaFinalReal: t2 });
+    const previo = await service.obtenerGraficos({ medidorId: med1, fechaInicio: new Date(t0.getTime() + 1), fechaFin: t1, limite: 1 });
+    expect(previo.grupos[0].series[0].puntos[0].valor).toBe(30);
+    expect(previo.grupos[0].consumos[0]).toMatchObject({ consumoNeto: 30, cobertura: "PARCIAL", fechaInicialReal: t0 });
+  });
+
+  it.each([null, 2])("no dibuja como cero intervalos con factor %s incompatible", async factor => {
+    repository.data.lecturas.find(l => l.id === "l3")!.multiplicadorAplicado = factor;
+    const r = await service.obtenerGraficos({ medidorId: med1, limite: 100 });
+    expect(r.grupos[0].series[0].puntos.map(p => p.valor)).toEqual([null, null, null]);
+    expect(r.grupos[0].series[0].puntos[1].detalle.estado).toBe("NO_COMPARABLE");
+    expect(r.grupos[0].consumos[0].consumoNeto).toBeNull();
+  });
+
+  it("no confunde decrementos ni modos NIVEL/INSTANTANEO con consumo acumulativo", async () => {
+    repository.data.lecturas.find(l => l.id === "l2")!.valor = 120;
+    repository.data.medidores[1].tipoMedicion = "INSTANTANEO";
+    repository.data.medidores[2].tipoMedicion = "NIVEL";
+    const r = await service.obtenerGraficos({ limite: 100 });
+    expect(r.grupos).toHaveLength(1);
+    expect(r.grupos[0].series).toHaveLength(1);
+    expect(r.grupos[0].series[0].puntos.at(-1)).toMatchObject({ valor: null, detalle: { motivo: "LECTURAS_INCOHERENTES" } });
+  });
+
+  it("agrega por raíces históricas incluso archivadas, y seleccionar hijo usa su consumo propio", async () => {
+    const hijo = repository.data.medidores[1];
+    Object.assign(hijo, { recurso: "AGUA", unidad: "M3", medidorPadreId: med1,
+      vinculos: [{ medidorPadreId: med1, vigenteDesde: new Date(0) }] });
+    repository.data.lecturas.push(
+      { id: "h0", medidorId: med2, valor: 490, fechaLectura: t0, operadorId: "op1" },
+      { id: "h2", medidorId: med2, valor: 510, fechaLectura: t2, operadorId: "op1" },
+    );
+    repository.data.medidores[0].activo = false;
+    const r = await service.obtenerGraficos({ instalacionId: inst1, limite: 1 });
+    expect(r.grupos[0].consumos[0].consumoNeto).toBe(50);
+    expect(r.grupos[0].series).toHaveLength(1);
+    const propio = await service.obtenerGraficos({ medidorId: med2, limite: 1 });
+    expect(propio.grupos[0].consumos[0].consumoNeto).toBe(20);
+  });
+
+  it("separa unidades, conserva insuficientes y aplica scope/filtros AND", async () => {
+    repository.data.medidores[1].recurso = "AGUA";
+    const r = await service.obtenerGraficos({ instalacionId: inst1, recurso: "AGUA", limite: 100 }, [inst1]);
+    expect(r.grupos.map(g => g.unidad).sort()).toEqual(["KWH", "M3"]);
+    expect(r.grupos.find(g => g.unidad === "KWH")!.consumos[0].consumoNeto).toBeNull();
+    expect((await service.obtenerGraficos({ limite: 100 }, [])).grupos).toEqual([]);
+    expect((await service.obtenerGraficos({ medidorId: med3, limite: 100 }, [inst1])).grupos).toEqual([]);
+    await expect(service.obtenerGraficos({ instalacionId: inst2, limite: 100 }, [inst1])).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.obtenerGraficos({ fechaInicio: t2, fechaFin: t0, limite: 100 })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("no ofrece porcentajes entre sedes con períodos reales distintos o datos incompletos", async () => {
+    expect((await service.obtenerGraficos({ recurso: "AGUA", limite: 100 })).grupos[0].distribucionComparable).toBe(false);
+    repository.data.lecturas = repository.data.lecturas.filter(l => l.medidorId !== med3);
+    repository.data.lecturas.push(
+      { id: "s1", medidorId: med3, valor: 10, fechaLectura: t1, operadorId: "op1" },
+      { id: "s2", medidorId: med3, valor: 30, fechaLectura: t2, operadorId: "op1" },
+    );
+    const diferentes = await service.obtenerGraficos({ recurso: "AGUA", limite: 100 });
+    expect(diferentes.grupos[0].consumos.map(c => c.estadoConsumo)).toEqual(["CALCULADO", "CALCULADO"]);
+    expect(diferentes.grupos[0].distribucionComparable).toBe(false);
+    const alineados = await service.obtenerGraficos({ recurso: "AGUA", fechaInicio: t1, fechaFin: t2, limite: 100 });
+    expect(alineados.grupos[0].distribucionComparable).toBe(true);
+    expect(alineados.grupos[0].consumos.map(c => c.consumoNeto)).toEqual([20, 20]);
   });
 
   it("filtra por instalacionId + recurso en AND", async () => {
@@ -162,6 +246,15 @@ describe("DashboardSeriesController HTTP (feat-028)", () => {
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBe(1);
     expect(body[0].puntos.length).toBe(2);
+  });
+
+  it("GET /graficos entrega consumo, valida query y protege el territorio", async () => {
+    app = await buildApp([inst1]);
+    const res = await app.inject({ url: "/api/dashboard/graficos" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().grupos[0].series[0].puntos.map((p: { valor: number | null }) => p.valor)).toEqual([null, 50]);
+    expect((await app.inject({ url: "/api/dashboard/graficos?limite=0" })).statusCode).toBe(400);
+    expect((await app.inject({ url: "/api/dashboard/graficos?instalacionId=22222222-2222-4222-8222-222222222222" })).statusCode).toBe(403);
   });
 
   it("query invalida (limite=0, uuid roto) retorna 400", async () => {

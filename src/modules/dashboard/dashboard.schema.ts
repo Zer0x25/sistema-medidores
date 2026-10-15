@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DomainError } from "../../core/errors.js";
+import { ConsumoResponseSchema } from "../consumos/consumos.schema.js";
 
 // ==============================================================================
 // DTOs para Dashboard de Administración
@@ -99,6 +100,19 @@ export const DashboardSerieQuerySchema = z.object({
 });
 
 export type DashboardSerieQuery = z.infer<typeof DashboardSerieQuerySchema>;
+export const DashboardGraficosQuerySchema = DashboardSerieQuerySchema.extend({ vista: z.enum(["completo", "resumen"]).optional() });
+export type DashboardGraficosQuery = z.infer<typeof DashboardGraficosQuerySchema>;
+export const DashboardIntervalosQuerySchema = DashboardSerieQuerySchema.omit({ limite: true }).extend({
+  medidorId: z.string().uuid(), pagina: z.coerce.number().int().min(1).max(100000).default(1),
+  tamanio: z.coerce.number().int().min(1).max(60).default(30),
+});
+export type DashboardIntervalosQuery = z.infer<typeof DashboardIntervalosQuerySchema>;
+export const DashboardIntervalosResponseSchema = z.object({
+  medidorCodigo: z.string().nullable(), unidad: z.string().nullable(),
+  pagina: z.number().int(), tamanio: z.number().int(), total: z.number().int(), totalPaginas: z.number().int(),
+  items: z.array(ConsumoResponseSchema).max(60),
+});
+export type DashboardIntervalosResponse = z.infer<typeof DashboardIntervalosResponseSchema>;
 
 export const DashboardSeriePuntoSchema = z.object({
   fecha: z.date(),
@@ -118,3 +132,22 @@ export const DashboardSerieMedidorSchema = z.object({
 });
 
 export type DashboardSerieMedidor = z.infer<typeof DashboardSerieMedidorSchema>;
+
+const GraficoConsumoSchema = z.object({
+  fecha: z.date(),
+  valor: z.number().nullable(),
+  detalle: ConsumoResponseSchema,
+});
+export const DashboardGraficosResponseSchema = z.object({
+  grupos: z.array(z.object({
+    recurso: z.string(), unidad: z.string(),
+    distribucionComparable: z.boolean(),
+    medidores: z.array(z.object({ medidorId: z.string().uuid(), medidorCodigo: z.string(), instalacionId: z.string().uuid(), instalacionNombre: z.string() })),
+    series: z.array(DashboardSerieMedidorSchema.extend({ puntos: z.array(GraficoConsumoSchema).max(500) })),
+    consumos: z.array(ConsumoPorInstalacionSchema.extend({
+      consumoNeto: z.number().nullable(),
+      cobertura: z.enum(["COMPLETA", "PARCIAL", "INSUFICIENTE"]),
+    })),
+  })),
+});
+export type DashboardGraficosResponse = z.infer<typeof DashboardGraficosResponseSchema>;
