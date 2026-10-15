@@ -871,6 +871,10 @@ async function cargarMedidoresInstalacion(instalacionId) {
       grid.innerHTML = '<div class="empty-state" data-testid="loading-state" role="status" aria-live="polite">Cargando medidores físicos...</div>';
     }
     const medidores = await window.api.medidores.getByInstalacion(instalacionId);
+    await Promise.all(medidores.map(async m => {
+      try { m.consumoTemporal = await window.api.lecturas.getConsumoActual(m.id); }
+      catch (_) { m.consumoTemporal = { estado: "ERROR", consumo: null }; }
+    }));
     medidoresOperadorCache = medidores;
 
     if (!grid) return;
@@ -939,7 +943,7 @@ function openModalLectura(medidorId) {
 
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  document.getElementById("modalLecturaInputFecha").value = now.toISOString().slice(0, 16);
+  document.getElementById("modalLecturaInputFecha").value = fechaLocalInput(now).slice(0, 16);
   document.getElementById("modalLecturaObservaciones").value = "";
 
   window.Modal.open("modalLectura");
@@ -1134,6 +1138,7 @@ async function submitNuevoMedidor(event) {
     await window.api.medidores.create({
       instalacionId,
       tipoMedidorId,
+      medidorPadreId: document.getElementById("selectMedidorPadre").value || null,
       codigo,
       numeroSerie: numeroSerie || undefined,
       codigoExterno,
@@ -1486,8 +1491,8 @@ async function cargarReporteConsumos() {
     const consumos = await window.api.reportes.getConsumos({
       instalacionId,
       recurso,
-      fechaInicio: `${fechaInicio}T00:00:00.000Z`,
-      fechaFin: `${fechaFin}T23:59:59.000Z`,
+      fechaInicio: new Date(`${fechaInicio}T00:00:00.000`).toISOString(),
+      fechaFin: new Date(Math.min(Date.now(), new Date(`${fechaFin}T23:59:59.999`).getTime())).toISOString(),
     });
 
     if (badgeTotal) badgeTotal.innerText = `${consumos.length} medidores`;
@@ -1505,9 +1510,9 @@ async function cargarReporteConsumos() {
           <td data-label="Medidor" class="font-mono">${escapeHtml(c.medidorCodigo)}</td>
           <td data-label="Recurso"><span class="badge ${meta.badgeClass}">${meta.icon} ${escapeHtml(c.recurso)}</span></td>
           <td data-label="Unidad"><span class="badge badge-muted">${escapeHtml(c.unidad)}</span></td>
-          <td data-label="Lectura Inicial" style="text-align: right;" class="font-mono">${formatNumber(c.lecturaInicial)}</td>
-          <td data-label="Lectura Final" style="text-align: right;" class="font-mono">${formatNumber(c.lecturaFinal)}</td>
-          <td data-label="Consumo Neto" style="text-align: right;" class="font-mono"><strong style="color: var(--accent-primary); font-size: 1.05rem;">${formatNumber(c.consumoNeto)}</strong></td>
+          <td data-label="Lectura Inicial" style="text-align: right;" class="font-mono">${formatNumber(c.consumoTemporal ? c.consumoTemporal.lecturaInicial?.valor : c.lecturaInicial)}</td>
+          <td data-label="Lectura Final" style="text-align: right;" class="font-mono">${formatNumber(c.consumoTemporal ? c.consumoTemporal.lecturaFinal?.valor : c.lecturaFinal)}</td>
+          <td data-label="Consumo Neto" style="text-align: right;" class="font-mono"><strong style="color: var(--accent-primary); font-size: 1.05rem;">${c.consumoTemporal && c.consumoTemporal.estado !== "CALCULADO" ? "Datos insuficientes" : formatNumber(c.consumoNeto)}</strong><small class="consumo-detalle">${c.consumoTemporal ? escapeHtml(c.consumoTemporal.cobertura === "PARCIAL" ? "Período observado parcial" : c.consumoTemporal.estado === "CALCULADO" ? "Período completo" : c.consumoTemporal.motivo || "Sin referencia") : ""}${c.participaEnTotal === false ? " · Incluido en su padre" : ""}</small></td>
           <td data-label="Muestras" style="text-align: center;"><span class="badge badge-blue">${c.totalLecturas} lecturas</span></td>
         </tr>
       `;
@@ -1531,8 +1536,8 @@ function exportarReporteCSV() {
   const url = window.api.reportes.getCsvUrl({
     instalacionId: instalacionId || undefined,
     recurso: recurso || undefined,
-    fechaInicio: `${fechaInicio}T00:00:00.000Z`,
-    fechaFin: `${fechaFin}T23:59:59.000Z`,
+    fechaInicio: new Date(`${fechaInicio}T00:00:00.000`).toISOString(),
+    fechaFin: new Date(Math.min(Date.now(), new Date(`${fechaFin}T23:59:59.999`).getTime())).toISOString(),
   });
 
   const a = document.createElement("a");
@@ -2063,7 +2068,10 @@ window.autofillAndLogin = autofillAndLogin;
 window.toggleLoginPasswordVisibility = toggleLoginPasswordVisibility;
 window.mostrarPantallaLogin = mostrarPantallaLogin;
 window.mostrarAppPrincipal = mostrarAppPrincipal;
-window.openModal = (id) => window.Modal.open(id);
+window.openModal = async (id) => {
+  if (id === "modalMedidor") { await cargarSelectsGlobales(); await actualizarPadresAlta(); }
+  window.Modal.open(id);
+};
 window.closeModal = (id) => window.Modal.close(id);
 window.openModalLectura = openModalLectura;
 window.submitLectura = submitLectura;
@@ -3078,3 +3086,103 @@ window.restaurarTipo = restaurarTipo;
 window.eliminarTipoFisico = eliminarTipoFisico;
 
 
+
+
+// Remarcadores y consumo temporal (feat-029).
+function fechaLocalInput(fecha) {
+  return new Date(fecha.getTime() - fecha.getTimezoneOffset() * 60000).toISOString().slice(0, -1);
+}
+async function poblarPadres(select, instalacionId, tipo, equipoActual = null) {
+  const previo = equipoActual ? equipoActual.medidorPadreId || "" : select.value;
+  select.disabled = true;
+  const equipos = instalacionId ? await window.api.medidores.getByInstalacion(instalacionId) : [];
+  const bloqueados = new Set(equipoActual ? [equipoActual.id] : []);
+  if (equipoActual) {
+    let cambio = true;
+    while (cambio) { cambio = false; for (const m of equipos) if (bloqueados.has(m.medidorPadreId) && !bloqueados.has(m.id)) { bloqueados.add(m.id); cambio = true; } }
+  }
+  const candidatos = equipos.filter(m => !bloqueados.has(m.id) && m.activo && tipo?.tipoMedicion === "ACUMULATIVO"
+    && m.tipoMedidor?.tipoMedicion === "ACUMULATIVO" && m.tipoMedidor.recurso === tipo.recurso
+    && (m.tipoMedidor.unidad || m.tipoMedidor.unidadMedida) === (tipo.unidad || tipo.unidadMedida));
+  select.innerHTML = '<option value="">Sin padre — medidor principal</option>' + candidatos.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.codigo)} · ${escapeHtml(m.ubicacionInterna)}</option>`).join("");
+  if (previo && !candidatos.some(m => m.id === previo) && equipoActual?.medidorPadreId === previo) {
+    select.innerHTML += `<option value="${escapeHtml(previo)}">${escapeHtml(equipoActual.medidorPadre?.codigo || "Padre archivado")}</option>`;
+  }
+  select.value = [...select.options].some(o => o.value === previo) ? previo : "";
+  select.disabled = false;
+}
+let secuenciaPadresAlta = 0;
+async function actualizarPadresAlta() {
+  const secuencia = ++secuenciaPadresAlta;
+  const select = document.getElementById("selectMedidorPadre");
+  const sede = document.getElementById("selectMedidorInstalacion").value;
+  const tipoId = document.getElementById("selectMedidorTipo").value;
+  // Preparar fuera del DOM evita que una respuesta antigua sobrescriba la selección nueva.
+  const temporal = document.createElement("select"); temporal.innerHTML = select.innerHTML; temporal.value = select.value;
+  select.disabled = true;
+  try {
+    await poblarPadres(temporal, sede, tiposMedidorCache.find(t => t.id === tipoId));
+    if (secuencia === secuenciaPadresAlta) { select.innerHTML = temporal.innerHTML; select.value = temporal.value; }
+  } catch (err) { window.Toast.error(err.message, "No se pudieron consultar los padres"); }
+  finally { if (secuencia === secuenciaPadresAlta) select.disabled = false; }
+}
+async function abrirModalCambiarPadre(id) {
+  try {
+    const medidor = await window.api.medidores.getById(id);
+    document.getElementById("cambiarPadreMedidorId").value = id;
+    document.getElementById("cambiarPadreCodigo").textContent = medidor.codigo;
+    await poblarPadres(document.getElementById("selectCambiarPadre"), medidor.instalacionId, medidor.tipoMedidor, medidor);
+    window.Modal.open("modalCambiarPadre");
+  } catch (err) { window.Toast.error(err.message, "No se pudo abrir el vínculo"); }
+}
+async function submitCambiarPadre(event) {
+  event.preventDefault();
+  const boton = event.target.querySelector('[type="submit"]'); boton.disabled = true;
+  try {
+    await window.api.medidores.cambiarPadre(document.getElementById("cambiarPadreMedidorId").value, document.getElementById("selectCambiarPadre").value || null);
+    window.Modal.close("modalCambiarPadre");
+    window.Toast.success("Vínculo guardado. Se conservó el historial anterior.");
+    await cargarParqueAdmin(); await cargarDashboard();
+  } catch (err) { window.Toast.error(err.message, "No se pudo cambiar el padre"); }
+  finally { boton.disabled = false; }
+}
+const motivosBalance = {
+  PERIODOS_NO_ALINEADOS: "Las lecturas de padre e hijos tienen fechas distintas",
+  VINCULO_CAMBIO_EN_PERIODO: "El vínculo cambió dentro del período",
+  DATOS_INSUFICIENTES: "Datos insuficientes",
+  HIJOS_SUPERAN_PADRE: "Los hijos superan el consumo del padre; revisar mediciones",
+  JERARQUIA_INCOHERENTE: "Revisar la jerarquía",
+};
+async function cargarBalanceSectores() {
+  const instalacionId = document.getElementById("filtroReporteSede").value;
+  const desde = document.getElementById("balanceFechaInicio");
+  const hasta = document.getElementById("balanceFechaFin");
+  if (!desde.value) desde.value = `${document.getElementById("filtroReporteInicio").value}T00:00`;
+  if (!hasta.value) hasta.value = fechaLocalInput(new Date());
+  if (!instalacionId || !desde.value || !hasta.value) { window.Toast.warning("Selecciona una sede y un período."); return; }
+  const body = document.getElementById("tbodyBalanceSectores");
+  const totales = document.getElementById("balanceTotales");
+  body.innerHTML = '<tr><td colspan="5" role="status">Calculando balance...</td></tr>'; totales.textContent = "";
+  try {
+    const b = await window.api.reportes.getBalances({ instalacionId, fechaInicio: new Date(desde.value).toISOString(), fechaFin: new Date(hasta.value).toISOString() });
+    const porId = new Map(b.nodos.map(n => [n.medidorId, n]));
+    totales.innerHTML = b.totales.map(t => `<p><strong>${escapeHtml(t.recurso)} · Total por medidores principales: ${t.consumo === null ? "Datos insuficientes o no comparables" : `${formatNumber(t.consumo)} ${escapeHtml(t.unidad)}`}</strong>${t.cobertura === "PARCIAL" ? " · Período observado parcial" : ""}</p>`).join("");
+    body.innerHTML = b.nodos.length ? b.nodos.map(n => {
+      const c = n.consumoPropio;
+      const ruta = []; const vistos = new Set(); let actual = n;
+      while (actual && !vistos.has(actual.medidorId)) { vistos.add(actual.medidorId); ruta.unshift(actual.medidorCodigo); actual = porId.get(actual.medidorPadreId); }
+      const valor = v => v === null ? "—" : `${formatNumber(v)} ${escapeHtml(n.unidad)}`;
+      return `<tr data-testid="balance-nodo-${escapeHtml(n.medidorId)}" data-estado="${n.estado}">
+        <td data-label="Medidor / sector" class="cell-stacked"><strong>${escapeHtml(n.medidorCodigo)}</strong><small>${escapeHtml(ruta.join(" › "))} · Nivel ${n.profundidad}</small></td>
+        <td data-label="Consumo medido">${valor(c.consumo)}</td>
+        <td data-label="Distribuido a hijos">${valor(n.consumoDistribuido)}</td>
+        <td data-label="Saldo sin distribuir">${valor(n.saldoSinDistribuir)}</td>
+        <td data-label="Estado y período real" class="cell-stacked"><strong>${escapeHtml(n.motivos.map(m => motivosBalance[m] || m).join(" · ") || "Calculado")}</strong><small>${c.lecturaInicial ? formatDate(c.lecturaInicial.fechaLectura) : "Sin lectura inicial"} → ${c.lecturaFinal ? formatDate(c.lecturaFinal.fechaLectura) : "Sin lectura final"}${c.cobertura === "PARCIAL" ? " · Cobertura parcial" : ""}</small></td>
+      </tr>`;
+    }).join("") : '<tr><td colspan="5" class="empty-state">No hay medidores acumulativos para este período.</td></tr>';
+  } catch (err) { body.innerHTML = `<tr><td colspan="5" role="alert">${escapeHtml(err.message)}</td></tr>`; }
+}
+window.actualizarPadresAlta = actualizarPadresAlta;
+window.abrirModalCambiarPadre = abrirModalCambiarPadre;
+window.submitCambiarPadre = submitCambiarPadre;
+window.cargarBalanceSectores = cargarBalanceSectores;

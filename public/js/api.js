@@ -271,6 +271,7 @@ class ApiClient {
 
   // --- Dominio: Lecturas & Telemetría ---
   lecturas = {
+    getConsumoActual: (id) => this.request(`/api/medidores/${encodeURIComponent(id)}/consumo-actual`),
     getRecientes: (limit = 8) => this.request(`/api/dashboard/actividad-reciente?limit=${limit}`),
     registrar: (payload) =>
       this.request("/api/lecturas", {
@@ -315,6 +316,8 @@ class ApiClient {
 
   // --- Dominio: Medidores & Tipos ---
   medidores = {
+    getById: (id) => this.request(`/api/medidores/${encodeURIComponent(id)}`),
+    cambiarPadre: (id, medidorPadreId) => this.request(`/api/medidores/${encodeURIComponent(id)}/padre`, { method: "PATCH", body: JSON.stringify({ medidorPadreId }) }),
     getAll: (estado = "activos") => this.request(`/api/medidores?estado=${encodeURIComponent(estado)}`),
     getTipos: (estado = "activos") => this.request(`/api/tipos-medidor?estado=${encodeURIComponent(estado)}`),
     getTipoById: (id) => this.request(`/api/tipos-medidor/${encodeURIComponent(id)}`),
@@ -377,6 +380,7 @@ class ApiClient {
 
   // --- Dominio: Reportes & Conciliación (feat-007) ---
   reportes = {
+    getBalances: (params) => this.request(`/api/reportes/balances?${new URLSearchParams(params)}`),
     getConsumos: (params = {}) => {
       const q = new URLSearchParams();
       if (params.instalacionId) q.append("instalacionId", params.instalacionId);

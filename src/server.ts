@@ -1,3 +1,5 @@
+import { ConsumosService } from "./modules/consumos/consumos.service.js";
+import { PrismaConsumosRepository } from "./modules/consumos/consumos.repository.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { FastifyInstance, FastifyRequest, FastifyError } from "fastify";
@@ -745,6 +747,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
 
   const reportesRepo = new PrismaReportesRepository(prisma);
   const reportesService = new ReportesService(reportesRepo);
+  const consumosService = new ConsumosService(new PrismaConsumosRepository(prisma));
 
   const webhooksRepo = new PrismaWebhooksRepository(prisma);
   const webhooksService = options.webhooksService ?? new WebhookDispatcherService(webhooksRepo);
@@ -903,9 +906,9 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(createUsuariosController(usuariosService), { prefix: "/api" });
   await app.register(createInstalacionesController(instalacionesService), { prefix: "/api" });
   await app.register(createMedidoresController(medidoresService), { prefix: "/api" });
-  await app.register(createLecturasController(lecturasService), { prefix: "/api" });
+  await app.register(createLecturasController(lecturasService, consumosService), { prefix: "/api" });
   await app.register(createDashboardController(dashboardService), { prefix: "/api" });
-  await app.register(createReportesController(reportesService), { prefix: "/api" });
+  await app.register(createReportesController(reportesService, consumosService), { prefix: "/api" });
   await app.register(createAlertasController(alertasService), { prefix: "/api" });
   await app.register(createMantenimientoController(mantenimientoService), { prefix: "/api" });
   await app.register(createAuditoriaController(auditoriaService), { prefix: "/api" });

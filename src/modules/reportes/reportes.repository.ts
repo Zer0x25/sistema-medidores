@@ -1,3 +1,4 @@
+import { calcularConsumo, construirBalance, EquipoConsumo } from "../consumos/consumos.service.js";
 import { PrismaClient } from "@prisma/client";
 import {
   IReportesRepository,
@@ -15,31 +16,26 @@ export class PrismaReportesRepository implements IReportesRepository {
       id?: string;
       tipoMedidor?: { recurso?: string };
       activo?: boolean;
-    } = {
-      activo: true,
-    };
+    } = {};
 
     if (filtro.instalacionId) {
       whereMedidor.instalacionId = filtro.instalacionId;
     } else if (allowedInstalacionIds) {
       whereMedidor.instalacionId = { in: allowedInstalacionIds };
     }
-    if (filtro.medidorId) {
-      whereMedidor.id = filtro.medidorId;
-    }
     if (filtro.recurso) {
       whereMedidor.tipoMedidor = { recurso: filtro.recurso };
     }
 
     const medidores = await this.prisma.medidor.findMany({
-      where: whereMedidor,
+      where: { ...whereMedidor, createdAt: { lte: filtro.fechaFin } },
       include: {
         instalacion: true,
         tipoMedidor: true,
+        vinculos: { orderBy: { vigenteDesde: "asc" } },
         lecturas: {
           where: {
             fechaLectura: {
-              gte: filtro.fechaInicio,
               lte: filtro.fechaFin,
             },
           },
@@ -48,19 +44,22 @@ export class PrismaReportesRepository implements IReportesRepository {
       },
     });
 
-    return medidores.map((m) => ({
-      medidorId: m.id,
-      medidorCodigo: m.codigo,
-      instalacionId: m.instalacionId,
-      instalacionNombre: m.instalacion.nombre,
-      recurso: m.tipoMedidor.recurso,
-      unidad: m.tipoMedidor.unidad,
-      tipoMedicion: m.tipoMedidor.tipoMedicion,
-      lecturas: m.lecturas.map((l) => ({
-        valor: l.valor,
-        fechaLectura: l.fechaLectura,
-      })),
-    }));
+    const equipos: EquipoConsumo[] = medidores.map(m => ({ ...m, recurso: m.tipoMedidor.recurso, unidad: m.tipoMedidor.unidad, tipoMedicion: m.tipoMedidor.tipoMedicion }));
+    const balances = new Map([...new Set(medidores.map(m => m.instalacionId))].map(id =>
+      [id, construirBalance(id, equipos.filter(m => m.instalacionId === id), filtro.fechaInicio, filtro.fechaFin)]));
+    return medidores.filter(m => (!filtro.medidorId || m.id === filtro.medidorId) && (m.tipoMedidor.tipoMedicion === "ACUMULATIVO" || m.activo)).map(m => {
+      const eq = equipos.find(e => e.id === m.id)!;
+      const balance = balances.get(m.instalacionId)!;
+      const nodo = balance.nodos.find(n => n.medidorId === m.id);
+      return {
+        medidorId: m.id, medidorCodigo: m.codigo, instalacionId: m.instalacionId, instalacionNombre: m.instalacion.nombre,
+        recurso: m.tipoMedidor.recurso, unidad: m.tipoMedidor.unidad, tipoMedicion: m.tipoMedidor.tipoMedicion,
+        medidorPadreId: nodo?.medidorPadreId ?? null, participaEnTotal: nodo?.participaEnTotal ?? true,
+        balanceComparable: balance.totales.find(t => t.recurso === eq.recurso && t.unidad === eq.unidad)?.estado !== "NO_COMPARABLE",
+        consumoTemporal: m.tipoMedidor.tipoMedicion === "ACUMULATIVO" ? calcularConsumo(eq, filtro.fechaInicio, filtro.fechaFin) : undefined,
+        lecturas: m.tipoMedidor.tipoMedicion === "ACUMULATIVO" ? m.lecturas : m.lecturas.filter(l => l.fechaLectura >= filtro.fechaInicio),
+      };
+    });
   }
 
   async getRecargas(medidorIds: string[], fechaInicio: Date, fechaFin: Date): Promise<{ medidorId: string; volumen: number; fecha: Date }[]> {

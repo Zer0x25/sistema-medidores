@@ -43,7 +43,8 @@ test.describe("Flujo E2E: Consumos Consolidados y Conciliación de Facturas", ()
     // Seleccionar la primera instalación disponible
     await selectSede.selectOption({ index: 0 });
 
-    await page.fill("#facturaNumero", "FAC-E2E-TEST-001");
+    const numeroFactura = `FAC-E2E-${Date.now()}`;
+    await page.fill("#facturaNumero", numeroFactura);
     await page.fill("#facturaPeriodoInicio", "2026-01-01");
     await page.fill("#facturaPeriodoFin", "2026-12-31");
     await page.fill("#facturaConsumo", "1500.50");
@@ -60,8 +61,10 @@ test.describe("Flujo E2E: Consumos Consolidados y Conciliación de Facturas", ()
     // 5. Verificar que la tabla de facturas cargó el registro con su estado de conciliación
     const tbodyFacturas = page.locator("#tbodyReporteFacturas");
     await expect(tbodyFacturas).toBeVisible();
-    await expect(tbodyFacturas).toContainText("FAC-E2E-TEST-001");
-    await expect(tbodyFacturas).toContainText(/CONCILIADO|DISCREPANCIA/);
+    const fila = tbodyFacturas.locator("tr", { hasText: numeroFactura });
+    await expect(fila).toBeVisible();
+    // Este rango anual no tiene lecturas de apertura/cierre: no se puede conciliar con cero ficticio.
+    await expect(fila).toContainText("PENDIENTE");
   });
 
   test("debe permitir exportar el reporte de consumos a archivo CSV", async ({ page }) => {

@@ -69,8 +69,21 @@ if [ ! -f ".env" ] && [ -f ".env.example" ]; then
 fi
 
 if [ -f "prisma/schema.prisma" ]; then
-  npx prisma generate > /dev/null 2>&1 || true
-  npx prisma db push --skip-generate > /dev/null 2>&1 || true
+  # Prisma necesita un archivo SQLite inicializado en algunos runtimes. Crear solo si falta;
+  # resolver rutas relativas contra schema.prisma y jamás truncar almacenamiento existente.
+  node <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+require("dotenv").config();
+const databaseUrl = process.env.DATABASE_URL;
+if (databaseUrl?.startsWith("file:")) {
+  const databasePath = path.resolve("prisma", databaseUrl.slice(5).split("?")[0]);
+  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+  if (!fs.existsSync(databasePath)) fs.closeSync(fs.openSync(databasePath, "ax"));
+}
+NODE
+  npx prisma generate
+  npx prisma db push --skip-generate
 fi
 
 # 1. Chequeo de Tipos Estricto

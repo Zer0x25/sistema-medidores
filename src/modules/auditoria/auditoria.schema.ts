@@ -2,6 +2,9 @@ import { z } from "zod";
 import { DomainError } from "../../core/errors.js";
 
 export const TipoAccionAuditoriaEnum = z.enum([
+  "MEDIDOR_PADRE_ASIGNADO",
+  "MEDIDOR_PADRE_CAMBIADO",
+  "MEDIDOR_PADRE_DESVINCULADO",
   "CAMBIO_ROL",
   "RESET_PASSWORD_ADMIN",
   "BAJA_MEDIDOR",

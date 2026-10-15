@@ -1,3 +1,4 @@
+import { construirBalance, EquipoConsumo, VinculoConsumo } from "../consumos/consumos.service.js";
 import {
   DashboardKpisResponse,
   MedidorDesatendido,
@@ -16,6 +17,9 @@ export interface RawInstalacion {
 }
 
 export interface RawMedidor {
+  medidorPadreId?: string | null;
+  vinculos?: VinculoConsumo[];
+  createdAt?: Date;
   id: string;
   codigo: string;
   instalacionId: string;
@@ -28,6 +32,7 @@ export interface RawMedidor {
 }
 
 export interface RawLectura {
+  multiplicadorAplicado?: number | null;
   id: string;
   medidorId: string;
   valor: number;
@@ -121,7 +126,7 @@ export class DashboardService {
 
   async obtenerConsumoPorInstalacion(allowedInstalacionIds?: string[]): Promise<ConsumoPorInstalacion[]> {
     const data = await this.repository.getDashboardData(allowedInstalacionIds);
-    const medidoresActivos = data.medidores.filter((m) => m.activo);
+    const medidoresActivos = data.medidores.filter(m => m.activo || (m.tipoMedicion === "ACUMULATIVO" && data.lecturas.some(l => l.medidorId === m.id)));
 
     // Agrupar por clave: `${instalacionId}:${recurso}`
     const grupos = new Map<
@@ -136,7 +141,7 @@ export class DashboardService {
     >();
 
     for (const m of medidoresActivos) {
-      const key = `${m.instalacionId}:${m.recurso}`;
+      const key = `${m.instalacionId}:${m.recurso}:${m.unidad}`;
       const grupo = grupos.get(key) || {
         instalacionId: m.instalacionId,
         instalacionNombre: m.instalacionNombre,
@@ -155,15 +160,8 @@ export class DashboardService {
 
       for (const m of grupo.medidores) {
         if (m.tipoMedicion === "ACUMULATIVO") {
-          const lecturas = data.lecturas
-            .filter((l) => l.medidorId === m.id)
-            .sort((a, b) => a.fechaLectura.getTime() - b.fechaLectura.getTime());
-
-          if (lecturas.length >= 2) {
-            const min = lecturas[0].valor;
-            const max = lecturas[lecturas.length - 1].valor;
-            consumoNetoTotal += Math.max(0, max - min);
-          }
+          // Los acumulativos se agregan una única vez por grupo, usando sus raíces históricas.
+          continue;
         } else if (m.tipoMedicion === "NIVEL") {
           const lecturas = data.lecturas
             .filter((l) => l.medidorId === m.id)
@@ -187,6 +185,15 @@ export class DashboardService {
         }
       }
 
+      const acumulativos: EquipoConsumo[] = grupo.medidores.filter(m => m.tipoMedicion === "ACUMULATIVO").map(m => ({
+        ...m, medidorPadreId: m.medidorPadreId ?? null, vinculos: m.vinculos ?? [], createdAt: m.createdAt ?? new Date(0),
+        lecturas: data.lecturas.filter(l => l.medidorId === m.id),
+      }));
+      const fechas = acumulativos.flatMap(m => m.lecturas.map(l => l.fechaLectura.getTime()));
+      const balance = acumulativos.length ? construirBalance(grupo.instalacionId, acumulativos,
+        new Date(fechas.reduce((a, b) => Math.min(a, b), fechas[0] ?? 0)), new Date(fechas.reduce((a, b) => Math.max(a, b), 0))) : null;
+      const total = balance?.totales[0];
+      consumoNetoTotal += total?.consumo ?? 0;
       consumoNetoTotal = Number(consumoNetoTotal.toFixed(2));
 
       resultado.push({
@@ -195,6 +202,9 @@ export class DashboardService {
         recurso: grupo.recurso,
         unidad: grupo.unidad,
         consumoNeto: consumoNetoTotal,
+        estadoConsumo: total?.estado ?? "CALCULADO",
+        fechaInicialReal: total?.fechaInicialReal ?? null,
+        fechaFinalReal: total?.fechaFinalReal ?? null,
         cantidadMedidores: grupo.medidores.length,
       });
     }

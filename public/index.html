@@ -919,6 +919,23 @@
         </div>
       </div>
 
+      <section class="card mt-6" data-testid="balance-sectores" aria-label="Balance por sectores">
+        <div class="card-header"><h2 class="card-title">Balance por sectores</h2></div>
+        <div class="balance-controles">
+          <p>Selecciona una sede en los filtros superiores. Para comparar ramas, sus lecturas de apertura y cierre deben tener las mismas fechas y horas.</p>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label" for="balanceFechaInicio">Apertura del período</label><input class="form-input" id="balanceFechaInicio" type="datetime-local" step="0.001"></div>
+            <div class="form-group"><label class="form-label" for="balanceFechaFin">Cierre del período</label><input class="form-input" id="balanceFechaFin" type="datetime-local" step="0.001"></div>
+          </div>
+          <button class="btn btn-primary" data-testid="btn-calcular-balance" onclick="cargarBalanceSectores()">Calcular balance</button>
+          <div id="balanceTotales" data-testid="balance-totales" role="status" aria-live="polite"></div>
+        </div>
+        <div class="table-responsive"><table class="data-table" aria-label="Desglose del consumo por sectores">
+          <thead><tr><th>Medidor / sector</th><th>Consumo medido</th><th>Distribuido a hijos</th><th>Saldo sin distribuir</th><th>Estado y período real</th></tr></thead>
+          <tbody id="tbodyBalanceSectores"><tr><td colspan="5" class="empty-state">Selecciona sede y período para calcular.</td></tr></tbody>
+        </table></div>
+      </section>
+
       <!-- Tabla 2: Auditoría y Conciliación contra Facturas -->
       <div class="card mt-6">
         <div class="card-header">
@@ -1555,16 +1572,21 @@
           <div class="form-grid-2">
             <div class="form-group">
               <label for="selectMedidorInstalacion" class="form-label">Instalación / Sede *</label>
-              <select id="selectMedidorInstalacion" data-testid="select-medidor-instalacion" class="form-select" required>
+              <select id="selectMedidorInstalacion" onchange="actualizarPadresAlta()" data-testid="select-medidor-instalacion" class="form-select" required>
                 <option value="">Selecciona instalación...</option>
               </select>
             </div>
             <div class="form-group">
               <label for="selectMedidorTipo" class="form-label">Tipo de Medidor *</label>
-              <select id="selectMedidorTipo" data-testid="select-medidor-tipo" class="form-select" required>
+              <select id="selectMedidorTipo" onchange="actualizarPadresAlta()" data-testid="select-medidor-tipo" class="form-select" required>
                 <option value="">Selecciona tipo...</option>
               </select>
             </div>
+          </div>
+          <div class="form-group">
+            <label for="selectMedidorPadre" class="form-label">Medidor padre (opcional)</label>
+            <select id="selectMedidorPadre" data-testid="select-medidor-padre" class="form-select"><option value="">Sin padre — medidor principal</option></select>
+            <span class="form-hint">Un remarcador mide una parte del consumo de su padre. Deben compartir sede, recurso y unidad.</span>
           </div>
           <div class="form-grid-2">
             <div class="form-group">
@@ -2208,5 +2230,20 @@
   <script src="/js/charts.js"></script>
   <script src="/js/sync-manager.js"></script>
   <script src="/app.js"></script>
+  <div class="modal-backdrop" id="modalCambiarPadre" data-testid="modal-cambiar-padre" data-state="closed" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="tituloCambiarPadre">
+    <div class="modal-box"><div class="modal-header"><h3 class="modal-title" id="tituloCambiarPadre">Cambiar medidor padre</h3>
+      <button class="btn-close" data-testid="btn-close-modal-cambiar-padre" onclick="closeModal('modalCambiarPadre')" aria-label="Cerrar">&times;</button></div>
+      <form data-testid="form-cambiar-padre" onsubmit="submitCambiarPadre(event)">
+        <div class="modal-body"><input id="cambiarPadreMedidorId" type="hidden">
+          <p id="cambiarPadreCodigo"></p><label for="selectCambiarPadre" class="form-label">Medidor padre</label>
+          <select class="form-select" id="selectCambiarPadre"><option value="">Sin padre — medidor principal</option></select>
+          <p class="form-hint">El vínculo entra en vigor al guardar. El historial anterior se conserva; los períodos que crucen el cambio se mostrarán como no comparables.</p>
+        </div>
+        <div class="modal-footer"><button class="btn btn-outline" type="button" onclick="closeModal('modalCambiarPadre')">Cancelar</button>
+          <button class="btn btn-primary" type="submit" data-testid="btn-submit-cambiar-padre">Guardar vínculo</button></div>
+      </form>
+    </div>
+  </div>
+
 </body>
 </html>

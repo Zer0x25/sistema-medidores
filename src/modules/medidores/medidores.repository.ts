@@ -1,13 +1,41 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import {
   IMedidoresRepository,
   TipoMedidorEntity,
   MedidorEntity,
 } from "./medidores.service.js";
-import { RecursoMedidor, UnidadMedida, TipoMedicion } from "./medidores.schema.js";
+import { RecursoMedidor, UnidadMedida, TipoMedicion, JerarquiaError } from "./medidores.schema.js";
 
 export class PrismaMedidoresRepository implements IMedidoresRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient | Prisma.TransactionClient) {}
+
+  async conTransaccion<T>(operacion: (repo: IMedidoresRepository) => Promise<T>): Promise<T> {
+    if (!("$transaction" in this.prisma)) return operacion(this);
+    try {
+      return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        await tx.$executeRaw`UPDATE medidores SET updatedAt = updatedAt WHERE 0`;
+        return operacion(new PrismaMedidoresRepository(tx));
+      }, { timeout: 15000, maxWait: 15000 });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ["P1008", "P2028", "P2034", "P2002"].includes(error.code)) {
+        throw new JerarquiaError("MEDIDOR_VINCULO_CONFLICTO", "La relación cambió concurrentemente; vuelva a consultar e intente de nuevo.", 409);
+      }
+      throw error;
+    }
+  }
+  async countHijosActivos(id: string): Promise<number> { return this.prisma.medidor.count({ where: { medidorPadreId: id, activo: true } }); }
+  async countVinculos(id: string): Promise<number> { return this.prisma.medidorVinculo.count({ where: { OR: [{ medidorId: id }, { medidorPadreId: id }] } }); }
+  async registrarVinculo(id: string, padreId: string | null, context: { usuarioId: string; ip?: string }): Promise<void> {
+    const anterior = await this.prisma.medidor.findUniqueOrThrow({ where: { id } });
+    const vigenteDesde = new Date();
+    await this.prisma.medidor.update({ where: { id }, data: { medidorPadreId: padreId } });
+    await this.prisma.medidorVinculo.create({ data: { medidorId: id, medidorPadreId: padreId, vigenteDesde, usuarioId: context.usuarioId } });
+    await this.prisma.auditoriaEvento.create({ data: {
+      usuarioId: context.usuarioId, ip: context.ip, entidad: "Medidor", entidadId: id,
+      accion: padreId === null ? "MEDIDOR_PADRE_DESVINCULADO" : anterior.medidorPadreId ? "MEDIDOR_PADRE_CAMBIADO" : "MEDIDOR_PADRE_ASIGNADO",
+      detalles: JSON.stringify({ padreAnterior: anterior.medidorPadreId, padreNuevo: padreId, vigenteDesde }),
+    } });
+  }
 
   async findTipoById(id: string): Promise<TipoMedidorEntity | null> {
     const tipo = await this.prisma.tipoMedidor.findUnique({ where: { id } });
@@ -117,6 +145,7 @@ export class PrismaMedidoresRepository implements IMedidoresRepository {
     const m = await this.prisma.medidor.findUnique({
       where: { id },
       include: {
+        medidorPadre: { select: { id: true, codigo: true } },
         tipoMedidor: true,
         lecturas: {
           orderBy: { fechaLectura: "desc" },
@@ -178,6 +207,19 @@ export class PrismaMedidoresRepository implements IMedidoresRepository {
   }
 
   async updateMedidor(id: string, data: Partial<MedidorEntity>): Promise<MedidorEntity> {
+    if ("$transaction" in this.prisma) return this.conTransaccion(repo => repo.updateMedidor(id, data));
+    const actual = await this.findMedidorById(id);
+    if (actual) {
+      if (data.activo === false && await this.countHijosActivos(id)) throw new JerarquiaError("MEDIDOR_CON_REMARCADORES_ACTIVOS", "El medidor tiene remarcadores activos.");
+      if (data.activo === true && actual.medidorPadreId && !(await this.findMedidorById(actual.medidorPadreId))?.activo) throw new JerarquiaError("MEDIDOR_PADRE_INCOMPATIBLE", "El padre debe estar activo.");
+      if (data.tipoMedidorId && data.tipoMedidorId !== actual.tipoMedidorId) {
+        const tipo = await this.findTipoById(data.tipoMedidorId);
+        if (tipo && (await this.countVinculos(id) || await this.countLecturas(id)) &&
+          (tipo.recurso !== actual.tipoMedidor?.recurso || tipo.unidad !== actual.tipoMedidor?.unidad || tipo.tipoMedicion !== actual.tipoMedidor?.tipoMedicion)) {
+          throw new JerarquiaError("TIPO_MEDIDOR_CON_HISTORIAL_INCOMPATIBLE", "El cambio de tipo alteraría el significado de lecturas o vínculos históricos.");
+        }
+      }
+    }
     return (await this.prisma.medidor.update({
       where: { id },
       data: {
@@ -189,6 +231,7 @@ export class PrismaMedidoresRepository implements IMedidoresRepository {
         ...(data.ubicacionInterna !== undefined && { ubicacionInterna: data.ubicacionInterna }),
         ...(data.activo !== undefined && { activo: data.activo }),
       },
+      include: { tipoMedidor: true, medidorPadre: { select: { id: true, codigo: true } } },
     })) as unknown as MedidorEntity;
   }
 
@@ -218,6 +261,7 @@ export class PrismaMedidoresRepository implements IMedidoresRepository {
     const list = await this.prisma.medidor.findMany({
       where,
       include: {
+        medidorPadre: { select: { id: true, codigo: true } },
         tipoMedidor: true,
         lecturas: {
           orderBy: { fechaLectura: "desc" },
@@ -266,6 +310,7 @@ export class PrismaMedidoresRepository implements IMedidoresRepository {
     const list = await this.prisma.medidor.findMany({
       where,
       include: {
+        medidorPadre: { select: { id: true, codigo: true } },
         tipoMedidor: true,
         lecturas: {
           orderBy: { fechaLectura: "desc" },

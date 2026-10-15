@@ -1,4 +1,5 @@
 import {
+  CambiarPadreInput, CambiarPadreInputSchema, JerarquiaError,
   CrearTipoMedidorInput,
   CrearTipoMedidorInputSchema,
   EditarTipoMedidorInput,
@@ -42,6 +43,8 @@ export interface TipoMedidorEntity {
 }
 
 export interface MedidorEntity {
+  medidorPadreId?: string | null;
+  medidorPadre?: { id: string; codigo: string } | null;
   id: string;
   instalacionId: string;
   tipoMedidorId: string;
@@ -63,6 +66,11 @@ export interface MedidorEntity {
 }
 
 export interface IMedidoresRepository {
+  conTransaccion?<T>(operacion: (repo: IMedidoresRepository) => Promise<T>): Promise<T>;
+  countHijosActivos?(id: string): Promise<number>;
+  countVinculos?(id: string): Promise<number>;
+  registrarVinculo?(id: string, padreId: string | null, context: { usuarioId: string; ip?: string }): Promise<void>;
+
   findTipoById(id: string): Promise<TipoMedidorEntity | null>;
   findTipoByNombre(nombre: string): Promise<TipoMedidorEntity | null>;
   createTipo(
@@ -166,7 +174,7 @@ export class MedidoresService {
   async editarTipoMedidor(
     id: string,
     rawInput: EditarTipoMedidorInput,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<TipoMedidorResponse> {
     const input = EditarTipoMedidorInputSchema.parse(rawInput);
     const actual = await this.repository.findTipoById(id);
@@ -213,7 +221,7 @@ export class MedidoresService {
 
   async archivarTipo(
     id: string,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<TipoMedidorResponse> {
     const actual = await this.repository.findTipoById(id);
     if (!actual) {
@@ -244,7 +252,7 @@ export class MedidoresService {
 
   async restaurarTipo(
     id: string,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<TipoMedidorResponse> {
     const actual = await this.repository.findTipoById(id);
     if (!actual) {
@@ -271,7 +279,7 @@ export class MedidoresService {
 
   async eliminarTipoFisico(
     id: string,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<boolean> {
     const actual = await this.repository.findTipoById(id);
     if (!actual) {
@@ -294,8 +302,12 @@ export class MedidoresService {
     return await this.repository.deleteTipoFisico(id);
   }
 
-  async crearMedidor(rawInput: CrearMedidorInput): Promise<MedidorResponse> {
+  async crearMedidor(rawInput: CrearMedidorInput, context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }, enTransaccion = false): Promise<MedidorResponse> {
     const input = CrearMedidorInputSchema.parse(rawInput);
+    if (input.medidorPadreId && !enTransaccion) {
+      if (!this.repository.conTransaccion) throw new JerarquiaError("MEDIDOR_VINCULO_CONFLICTO", "Persistencia transaccional no disponible.", 409);
+      return this.repository.conTransaccion(repo => new MedidoresService(repo, this.instalacionesService).crearMedidor(input, context, true));
+    }
 
     // 1. Verificar existencia y estado activo de la instalación
     await this.instalacionesService.verifyInstalacionActiva(input.instalacionId);
@@ -336,6 +348,10 @@ export class MedidoresService {
       activo: true,
     });
 
+    if (input.medidorPadreId) {
+      await this.cambiarPadreInterno(creado.id, input.medidorPadreId, context);
+      return this.obtenerMedidorPorId(creado.id);
+    }
     return this.mapResponse({
       ...creado,
       tipoMedidor: {
@@ -343,6 +359,43 @@ export class MedidoresService {
         unidadMedida: tipo.unidad,
       },
     });
+  }
+
+  async cambiarPadre(id: string, raw: CambiarPadreInput, context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }): Promise<MedidorResponse> {
+    const input = CambiarPadreInputSchema.parse(raw);
+    if (!this.repository.conTransaccion) throw new JerarquiaError("MEDIDOR_VINCULO_CONFLICTO", "Persistencia transaccional no disponible.", 409);
+    return this.repository.conTransaccion(async repo => {
+      const servicio = new MedidoresService(repo, this.instalacionesService);
+      await servicio.cambiarPadreInterno(id, input.medidorPadreId, context);
+      return servicio.obtenerMedidorPorId(id);
+    });
+  }
+
+  private async cambiarPadreInterno(id: string, padreId: string | null, context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }): Promise<void> {
+    const hijo = await this.repository.findMedidorById(id);
+    if (!hijo) throw new MedidorNotFoundError(id);
+    if ((hijo.medidorPadreId ?? null) === padreId) return;
+    if (padreId) {
+      const padre = await this.repository.findMedidorById(padreId);
+      if (!padre) throw new JerarquiaError("MEDIDOR_PADRE_NOT_FOUND", "Medidor padre no encontrado.", 404);
+      if (context?.allowedInstalacionIds !== undefined && !context.allowedInstalacionIds.includes(padre.instalacionId)) {
+        throw new JerarquiaError("INSTALACION_NO_ASIGNADA", "El padre pertenece a una instalación no asignada.", 403);
+      }
+      const visitados = new Set([id]);
+      let actual: MedidorEntity | null = padre;
+      while (actual) {
+        if (visitados.has(actual.id)) throw new JerarquiaError("MEDIDOR_JERARQUIA_CICLICA", "El padre no puede ser el propio equipo ni uno de sus descendientes.");
+        visitados.add(actual.id);
+        actual = actual.medidorPadreId ? await this.repository.findMedidorById(actual.medidorPadreId) : null;
+      }
+      if (!hijo.activo || !padre.activo || hijo.instalacionId !== padre.instalacionId
+        || hijo.tipoMedidor?.tipoMedicion !== "ACUMULATIVO" || padre.tipoMedidor?.tipoMedicion !== "ACUMULATIVO"
+        || hijo.tipoMedidor.recurso !== padre.tipoMedidor.recurso || hijo.tipoMedidor.unidad !== padre.tipoMedidor.unidad) {
+        throw new JerarquiaError("MEDIDOR_PADRE_INCOMPATIBLE", "Padre e hijo deben estar activos y compartir sede, recurso, unidad y modo acumulativo.");
+      }
+    }
+    if (!context?.usuarioId || !this.repository.registrarVinculo) throw new JerarquiaError("MEDIDOR_VINCULO_CONFLICTO", "Se requiere un actor autenticado y una transacción para vincular.", 409);
+    await this.repository.registrarVinculo(id, padreId, { usuarioId: context.usuarioId, ip: context.ip });
   }
 
   private mapResponse(m: MedidorEntity): MedidorResponse {
@@ -357,6 +410,8 @@ export class MedidoresService {
       : undefined;
     return {
       ...m,
+      medidorPadreId: m.medidorPadreId ?? null,
+      medidorPadre: m.medidorPadre ?? null,
       enPeriodoGracia,
       diasRestantesGracia,
       tipoMedidor: tipo as MedidorResponse["tipoMedidor"],
@@ -397,7 +452,7 @@ export class MedidoresService {
   async editarMedidor(
     id: string,
     rawInput: EditarMedidorInput,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<MedidorResponse> {
     const input = EditarMedidorInputSchema.parse(rawInput);
     const actual = await this.repository.findMedidorById(id);
@@ -440,6 +495,7 @@ export class MedidoresService {
       }
     }
 
+    if (input.activo === false && await this.repository.countHijosActivos?.(id)) throw new JerarquiaError("MEDIDOR_CON_REMARCADORES_ACTIVOS", "Archive o desvincule los remarcadores activos primero.");
     const updated = await this.repository.updateMedidor(id, {
       ...(input.tipoMedidorId !== undefined && { tipoMedidorId: input.tipoMedidorId }),
       ...(input.codigo !== undefined && { codigo: input.codigo.trim() }),
@@ -468,20 +524,21 @@ export class MedidoresService {
 
     return this.mapResponse({
       ...updated,
-      tipoMedidor: actual.tipoMedidor,
+      tipoMedidor: updated.tipoMedidor ?? actual.tipoMedidor,
       ultimaLectura: actual.ultimaLectura,
     });
   }
 
   async archivarMedidor(
     id: string,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<MedidorResponse> {
     const actual = await this.repository.findMedidorById(id);
     if (!actual) {
       throw new MedidorNotFoundError(id);
     }
 
+    if (await this.repository.countHijosActivos?.(id)) throw new JerarquiaError("MEDIDOR_CON_REMARCADORES_ACTIVOS", "Archive o desvincule los remarcadores activos primero.");
     const updated = await this.repository.updateMedidor(id, { activo: false });
 
     if (this.auditoriaLogger) {
@@ -497,20 +554,24 @@ export class MedidoresService {
 
     return this.mapResponse({
       ...updated,
-      tipoMedidor: actual.tipoMedidor,
+      tipoMedidor: updated.tipoMedidor ?? actual.tipoMedidor,
       ultimaLectura: actual.ultimaLectura,
     });
   }
 
   async restaurarMedidor(
     id: string,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<MedidorResponse> {
     const actual = await this.repository.findMedidorById(id);
     if (!actual) {
       throw new MedidorNotFoundError(id);
     }
 
+    if (actual.medidorPadreId) {
+      const padre = await this.repository.findMedidorById(actual.medidorPadreId);
+      if (!padre?.activo) throw new JerarquiaError("MEDIDOR_PADRE_INCOMPATIBLE", "El padre debe estar activo para restaurar el remarcador.");
+    }
     const updated = await this.repository.updateMedidor(id, { activo: true });
 
     if (this.auditoriaLogger) {
@@ -526,7 +587,7 @@ export class MedidoresService {
 
     return this.mapResponse({
       ...updated,
-      tipoMedidor: actual.tipoMedidor,
+      tipoMedidor: updated.tipoMedidor ?? actual.tipoMedidor,
       ultimaLectura: actual.ultimaLectura,
     });
   }
@@ -537,7 +598,7 @@ export class MedidoresService {
 
   async eliminarMedidorFisico(
     id: string,
-    context?: { usuarioId?: string; ip?: string }
+    context?: { usuarioId?: string; ip?: string; allowedInstalacionIds?: string[] }
   ): Promise<boolean> {
     const actual = await this.repository.findMedidorById(id);
     if (!actual) {
@@ -549,6 +610,7 @@ export class MedidoresService {
       throw new EliminacionFisicaProhibidaError("medidor", id);
     }
 
+    if (await this.repository.countVinculos?.(id)) throw new JerarquiaError("MEDIDOR_CON_VINCULOS_NO_ELIMINABLE", "El equipo tiene vínculos históricos y debe conservarse.");
     if (this.repository.countLecturas) {
       const lecturasCount = await this.repository.countLecturas(id);
       if (lecturasCount > 0) {

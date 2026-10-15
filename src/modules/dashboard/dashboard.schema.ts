@@ -54,6 +54,8 @@ export const MedidorDesatendidoSchema = z.object({
 export type MedidorDesatendido = z.infer<typeof MedidorDesatendidoSchema>;
 
 export const ConsumoPorInstalacionSchema = z.object({
+  estadoConsumo: z.enum(["CALCULADO", "NO_COMPARABLE", "DATOS_INSUFICIENTES"]).optional(),
+  fechaInicialReal: z.date().nullable().optional(), fechaFinalReal: z.date().nullable().optional(),
   instalacionId: z.string().uuid(),
   instalacionNombre: z.string(),
   recurso: z.string(),

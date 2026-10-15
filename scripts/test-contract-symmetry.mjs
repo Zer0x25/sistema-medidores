@@ -162,6 +162,20 @@ async function run() {
   assertNoLeak(renderedCardDate, "Fecha de Tarjeta de Medidor");
   assertNoLeak(`${ult.valor} ${foundMed.tipoMedidor.unidadMedida}`, "Valor y Unidad de Tarjeta");
 
+  const consumoRes = await fetch(`${BASE_URL}/api/medidores/${medCreated.id}/consumo-actual`, { headers: authHeaders });
+  if (!consumoRes.ok) throw new Error(`Error consultando consumo: HTTP ${consumoRes.status}`);
+  const consumo = await consumoRes.json();
+  if (consumo.estado !== "DATOS_INSUFICIENTES" || consumo.consumo !== null) throw new Error("Una sola lectura debe producir consumo insuficiente y null.");
+  const hijoRes = await fetch(`${BASE_URL}/api/medidores`, {
+    method: "POST", headers: authHeaders, body: JSON.stringify({ ...testMedidorInput, codigo: `REM-${Date.now()}`, medidorPadreId: medCreated.id }),
+  });
+  if (!hijoRes.ok) throw new Error(`Error creando remarcador: HTTP ${hijoRes.status}`);
+  const hijo = await hijoRes.json();
+  const hijoLectura = await fetch(`${BASE_URL}/api/medidores/${hijo.id}`, { headers: authHeaders });
+  const hijoPersistido = await hijoLectura.json();
+  if (!hijoLectura.ok || hijoPersistido.medidorPadreId !== medCreated.id || hijoPersistido.medidorPadre?.codigo !== medCreated.codigo) throw new Error("El vínculo padre-hijo no persiste simétricamente.");
+  assertNoLeak(`Remarcador de ${hijoPersistido.medidorPadre.codigo}`, "Vínculo de remarcador");
+
   // 8. Creación de Usuario, Asignación de Instalación y Verificación Roundtrip (Read-After-Write)
   const testUserEmail = `operador-roundtrip-${Date.now()}@medidores.cl`;
   console.log(`\n6️⃣ Creando Usuario Operador: "${testUserEmail}"...`);

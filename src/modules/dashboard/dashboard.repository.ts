@@ -27,6 +27,7 @@ export class PrismaDashboardRepository implements IDashboardRepository {
     const medidores = await this.prisma.medidor.findMany({
       where: whereMed,
       include: {
+        vinculos: { orderBy: { vigenteDesde: "asc" } },
         instalacion: { select: { nombre: true } },
         tipoMedidor: {
           select: {
@@ -49,6 +50,7 @@ export class PrismaDashboardRepository implements IDashboardRepository {
         id: true,
         medidorId: true,
         valor: true,
+        multiplicadorAplicado: true,
         fechaLectura: true,
         operadorId: true,
         notas: true,
@@ -67,6 +69,7 @@ export class PrismaDashboardRepository implements IDashboardRepository {
       instalaciones,
       medidores: medidores.map((m) => ({
         id: m.id,
+        medidorPadreId: m.medidorPadreId, vinculos: m.vinculos, createdAt: m.createdAt,
         codigo: m.codigo,
         instalacionId: m.instalacionId,
         instalacionNombre: m.instalacion.nombre,

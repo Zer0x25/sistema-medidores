@@ -1,7 +1,8 @@
+import { ZodError } from "zod";
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { MedidoresService } from "./medidores.service.js";
 import { isDomainError } from "../../core/errors.js";
-import { CrearTipoMedidorInput, CrearMedidorInput, EditarMedidorInput, EditarTipoMedidorInput } from "./medidores.schema.js";
+import { CambiarPadreInput, CrearTipoMedidorInput, CrearMedidorInput, EditarMedidorInput, EditarTipoMedidorInput } from "./medidores.schema.js";
 
 export function createMedidoresController(service: MedidoresService): FastifyPluginAsync {
   return async function (fastify: FastifyInstance) {
@@ -78,9 +79,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
       reply: FastifyReply
     ) => {
       try {
-        const user = (request as unknown as { user?: { id?: string } }).user;
+        const user = (request as unknown as { user?: { userId?: string } }).user;
         const result = await service.editarTipoMedidor(request.params.id, request.body, {
-          usuarioId: user?.id,
+          usuarioId: user?.userId,
           ip: request.ip,
         });
         return reply.status(200).send(result);
@@ -103,9 +104,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
 
     const handleArchivarTipo = async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
-        const user = (request as unknown as { user?: { id?: string } }).user;
+        const user = (request as unknown as { user?: { userId?: string } }).user;
         const result = await service.archivarTipo(request.params.id, {
-          usuarioId: user?.id,
+          usuarioId: user?.userId,
           ip: request.ip,
         });
         return reply.status(200).send(result);
@@ -128,9 +129,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
 
     const handleRestaurarTipo = async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
-        const user = (request as unknown as { user?: { id?: string } }).user;
+        const user = (request as unknown as { user?: { userId?: string } }).user;
         const result = await service.restaurarTipo(request.params.id, {
-          usuarioId: user?.id,
+          usuarioId: user?.userId,
           ip: request.ip,
         });
         return reply.status(200).send(result);
@@ -153,9 +154,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
 
     const handleEliminarTipo = async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
-        const user = (request as unknown as { user?: { id?: string } }).user;
+        const user = (request as unknown as { user?: { userId?: string } }).user;
         await service.eliminarTipoFisico(request.params.id, {
-          usuarioId: user?.id,
+          usuarioId: user?.userId,
           ip: request.ip,
         });
         return reply.status(200).send({ success: true, message: "Tipo de medidor eliminado definitivamente" });
@@ -183,9 +184,11 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
       "/medidores",
       async (request: FastifyRequest<{ Body: CrearMedidorInput }>, reply: FastifyReply) => {
         try {
-          const result = await service.crearMedidor(request.body);
+          const user = (request as unknown as { user?: { userId: string; allowedInstalacionIds?: string[] } }).user;
+          const result = await service.crearMedidor(request.body, { usuarioId: user?.userId, ip: request.ip, allowedInstalacionIds: user?.allowedInstalacionIds });
           return reply.status(201).send(result);
         } catch (error) {
+          if (error instanceof ZodError) return reply.status(400).send({ error: "VALIDATION_ERROR", message: "Datos de medidor inválidos", details: error.issues });
           if (isDomainError(error)) {
             return reply.status(error.statusCode).send({
               error: error.code,
@@ -200,6 +203,17 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
         }
       }
     );
+
+    fastify.patch<{ Params: { id: string }; Body: CambiarPadreInput }>("/medidores/:id/padre", async (request, reply) => {
+      try {
+        const user = (request as unknown as { user: { userId: string } }).user;
+        return await service.cambiarPadre(request.params.id, request.body, { usuarioId: user.userId, ip: request.ip });
+      } catch (error) {
+        if (error instanceof ZodError) return reply.status(400).send({ error: "VALIDATION_ERROR", message: "Padre inválido", details: error.issues });
+        if (isDomainError(error)) return reply.status(error.statusCode).send({ error: error.code, message: error.message });
+        throw error;
+      }
+    });
 
     fastify.get(
       "/medidores",
@@ -273,9 +287,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
         reply: FastifyReply
       ) => {
         try {
-          const user = (request as unknown as { user?: { id?: string } }).user;
+          const user = (request as unknown as { user?: { userId?: string } }).user;
           const result = await service.editarMedidor(request.params.id, request.body, {
-            usuarioId: user?.id,
+            usuarioId: user?.userId,
             ip: request.ip,
           });
           return reply.status(200).send(result);
@@ -299,9 +313,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
       "/medidores/:id/archivar",
       async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
         try {
-          const user = (request as unknown as { user?: { id?: string } }).user;
+          const user = (request as unknown as { user?: { userId?: string } }).user;
           const result = await service.archivarMedidor(request.params.id, {
-            usuarioId: user?.id,
+            usuarioId: user?.userId,
             ip: request.ip,
           });
           return reply.status(200).send(result);
@@ -325,9 +339,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
       "/medidores/:id/restaurar",
       async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
         try {
-          const user = (request as unknown as { user?: { id?: string } }).user;
+          const user = (request as unknown as { user?: { userId?: string } }).user;
           const result = await service.restaurarMedidor(request.params.id, {
-            usuarioId: user?.id,
+            usuarioId: user?.userId,
             ip: request.ip,
           });
           return reply.status(200).send(result);
@@ -351,9 +365,9 @@ export function createMedidoresController(service: MedidoresService): FastifyPlu
       "/medidores/:id",
       async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
         try {
-          const user = (request as unknown as { user?: { id?: string } }).user;
+          const user = (request as unknown as { user?: { userId?: string } }).user;
           await service.eliminarMedidorFisico(request.params.id, {
-            usuarioId: user?.id,
+            usuarioId: user?.userId,
             ip: request.ip,
           });
           return reply.status(200).send({ success: true, message: "Medidor eliminado definitivamente" });

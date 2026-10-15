@@ -4,16 +4,33 @@ Este archivo actúa como **memoria persistente y tablero de control** para human
 
 ---
 
-## 🧭 Fase Actual: Dashboard con Gráficos por Medidor e Instalación (feat-028)
+## 🧭 Fase Actual: Remarcadores Jerárquicos y Balances de Consumo (feat-029)
 
 - **Proyecto:** `Medidores`
-- **Estado:** Estable. Dashboard `#/dashboard` con sección «Análisis Gráfico»: evolución por medidor (línea), consumo por instalación (barras) y distribución por recurso (dona) en Canvas 2D nativo sin dependencias; filtros por sede/medidor/recurso/rango; endpoint `GET /api/dashboard/series` con 403 territorial y 401 sin auth; OPERADOR bloqueado (403).
-- **Spec Activo:** `specs/feat-028-dashboard-graficos-series.md`
-- **Última verificación de Quality Gate:** Superada con código de salida 0 (347/347 tests en Vitest, Typecheck y Linter limpios, 2/2 tests Playwright E2E nuevos pasando, zero-overflow 320/375/768).
+- **Estado:** Estable. Remarcadores con padre opcional, múltiples hijos y niveles, vínculos con vigencia y auditoría transaccional, consumo entre lecturas visible en Modo Terreno, balance por sectores en Reportes y totales por raíces sin doble conteo en Dashboard/CSV/facturas.
+- **Spec Activo:** `specs/feat-029-remarcadores-y-balances-consumo.md`.
+- **Última verificación de Quality Gate:** `./scripts/verify.sh` salida 0, 339/339 Vitest, typecheck y lint sin errores; build de producción correcto; 9/9 E2E seleccionados y `npm run test:contract` correctos contra almacenamiento aislado.
 
 ---
 
+## Remarcadores y balances: implementación completada
+
+- **Fecha:** 2026-10-15.
+- **Entrega A:** motor compartido de consumo temporal, apertura anterior o igual al inicio, fechas reales/cobertura, continuidad de factor y estados null explícitos; tarjetas de Modo Terreno con lectura anterior/actual y delta confirmado.
+- **Entrega B:** alta con padre y cambio/desvinculación en Parque; historial de vigencias, auditoría y proyección actual en una transacción; rechazo de ciclos, padres incompatibles y accesos territoriales ajenos. Concurrencia A→B/B→A probada en SQLite real, con rollback de auditoría.
+- **Entrega C:** balance por hijos directos y topología histórica, saldos negativos visibles, períodos desalineados no comparables, sumas por raíces/recurso/unidad y facturas pendientes cuando faltan referencias. Vista móvil verificada sin overflow a 320/375/425/768/1024 px.
+- **Base local de desarrollo:** esquema aditivo aplicado con respaldo previo `backups/pre-remarcadores-20261015.db`. Antes/después: 212 medidores y 295 lecturas; los 212 padres inicialmente nulos. Prueba adicional de adopción de una base del esquema anterior conservó IDs, lecturas y factores.
+- **Prueba de adopción:** esquema previo fijado en `tests/fixtures/feat-028-schema.prisma`; no depende de `HEAD` ni del historial Git disponible en CI.
+- **Gate:** excluir el repositorio hijo del runner padre y dejar de ocultar errores de aprovisionamiento Prisma; inicializar únicamente archivos SQLite ausentes. El gate final pasó desde un archivo temporal inexistente.
+- **Evidencia:** `/tmp/remarcadores-roja.log` (fase roja inicial), `/tmp/remarcadores-e2e-roja.log` (UI roja), `/tmp/remarcadores-gate-entrega.log` (339/339), `/tmp/remarcadores-contract.log` (contratos). E2E: suites `remarcadores-balances`, `reportes-conciliacion`, `lecturas-terreno` y `dashboard-graficos`, 9/9 con salida 0; captura del balance móvil en `/tmp/remarcadores-balance-mobile.png`. Los archivos en `/tmp` son evidencia temporal.
+- **Límites de esta entrega:** balance jerárquico ACUMULATIVO con recurso/unidad idénticos y timestamps de apertura/cierre alineados, sin interpolación; historial con factores desconocidos se marca no comparable. NIVEL/INSTANTANEO conservan su cálculo anterior. Sin sincronización del repositorio Edge. Commit y push del repositorio padre autorizados explícitamente por el usuario el 2026-10-15.
+
 ## 📋 Registro de Hitos
+
+- [x] **Hito 15.11: Remarcadores Jerárquicos y Balances de Consumo (Completado: 2026-10-15)**
+  - Spec `feat-029`; contratos Zod, pruebas rojas/verde, Prisma regenerado y sincronización aditiva con respaldo local.
+  - Jerarquía persistida y auditada, consumo temporal visible, balances históricos, total sin doble conteo, CSV/conciliación y adaptación móvil.
+  - Quality Gate salida 0 (339/339), build y contrato correctos; 9/9 Playwright seleccionados. Sin cambios en ADR ni dependencias.
 
 - [x] **Hito 15.10: Dashboard con Gráficos por Medidor e Instalación (Completado: 2026-10-13)**
   - Spec `feat-028` bajo SDD + Agentic TDD (Fase Roja 9/9 en fallo, Fase Verde 9/9).

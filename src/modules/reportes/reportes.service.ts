@@ -1,3 +1,5 @@
+import { calcularConsumo } from "../consumos/consumos.service.js";
+import { ConsumoResponse } from "../consumos/consumos.schema.js";
 import {
   FiltroReporteConsumo,
   FiltroReporteConsumoSchema,
@@ -10,11 +12,17 @@ import {
 } from "./reportes.schema.js";
 
 export interface ReporteLecturaRaw {
+  id?: string;
+  multiplicadorAplicado?: number | null;
   valor: number;
   fechaLectura: Date;
 }
 
 export interface ReporteRawItem {
+  medidorPadreId?: string | null;
+  participaEnTotal?: boolean;
+  balanceComparable?: boolean;
+  consumoTemporal?: ConsumoResponse;
   medidorId: string;
   medidorCodigo: string;
   instalacionId: string;
@@ -87,19 +95,23 @@ export class ReportesService {
     const resultado: ItemConsumoConsolidado[] = [];
 
     for (const item of rawItems) {
-      if (item.lecturas.length === 0) continue;
+      if (item.lecturas.length === 0 && item.tipoMedicion !== "ACUMULATIVO") continue;
 
       // Ordenar por fecha cronológica ascendente
       const ordenadas = [...item.lecturas].sort(
         (a, b) => a.fechaLectura.getTime() - b.fechaLectura.getTime()
       );
 
-      const lecturaInicial = ordenadas[0].valor;
-      const lecturaFinal = ordenadas[ordenadas.length - 1].valor;
+      const lecturaInicial = ordenadas[0]?.valor ?? 0;
+      const lecturaFinal = ordenadas[ordenadas.length - 1]?.valor ?? 0;
       let consumoNeto = 0;
 
+      const consumoTemporal = item.tipoMedicion === "ACUMULATIVO" ? item.consumoTemporal ?? calcularConsumo({
+        id: item.medidorId, unidad: item.unidad, tipoMedicion: item.tipoMedicion,
+        lecturas: ordenadas.map((l, i) => ({ ...l, id: l.id ?? String(i) })),
+      }, filtro.fechaInicio, filtro.fechaFin) : undefined;
       if (item.tipoMedicion === "ACUMULATIVO") {
-        consumoNeto = Math.max(0, Number((lecturaFinal - lecturaInicial).toFixed(2)));
+        consumoNeto = consumoTemporal?.consumo ?? 0;
       } else if (item.tipoMedicion === "NIVEL") {
         const bajadaNeta = Math.max(0, Number((lecturaInicial - lecturaFinal).toFixed(2)));
         const recargaTotal = Number((recargasPorMedidor.get(item.medidorId) || 0).toFixed(2));
@@ -117,8 +129,13 @@ export class ReportesService {
         instalacionNombre: item.instalacionNombre,
         recurso: item.recurso,
         unidad: item.unidad,
-        lecturaInicial,
-        lecturaFinal,
+        lecturaInicial: consumoTemporal?.lecturaInicial?.valor ?? lecturaInicial,
+        lecturaFinal: consumoTemporal?.lecturaFinal?.valor ?? lecturaFinal,
+        consumoTemporal,
+        estadoConsumo: consumoTemporal?.estado,
+        medidorPadreId: item.medidorPadreId ?? null,
+        participaEnTotal: item.participaEnTotal ?? !item.medidorPadreId,
+        balanceComparable: item.balanceComparable ?? true,
         consumoNeto,
         totalLecturas: ordenadas.length,
         fechaInicio: filtro.fechaInicio,
@@ -144,7 +161,7 @@ export class ReportesService {
       "LecturaFinal",
       "ConsumoNeto",
       "FechaInicio",
-      "FechaFin",
+      "FechaFin", "MedidorPadre", "ParticipaEnTotal", "EstadoConsumo", "FechaInicialReal", "FechaFinalReal",
     ];
 
     const filas = consolidado.map((c) => [
@@ -152,11 +169,13 @@ export class ReportesService {
       c.medidorCodigo,
       c.recurso,
       c.unidad,
-      c.lecturaInicial,
-      c.lecturaFinal,
-      c.consumoNeto,
+      c.consumoTemporal ? c.consumoTemporal.lecturaInicial?.valor ?? "" : c.lecturaInicial,
+      c.consumoTemporal ? c.consumoTemporal.lecturaFinal?.valor ?? "" : c.lecturaFinal,
+      c.consumoTemporal && c.consumoTemporal.estado !== "CALCULADO" ? "" : c.consumoNeto,
       c.fechaInicio.toISOString().split("T")[0],
       c.fechaFin.toISOString().split("T")[0],
+      c.medidorPadreId ?? "", c.participaEnTotal !== false ? "SI" : "NO", c.estadoConsumo ?? "CALCULADO",
+      c.consumoTemporal?.lecturaInicial?.fechaLectura.toISOString() ?? "", c.consumoTemporal?.lecturaFinal?.fechaLectura.toISOString() ?? "",
     ]);
 
     return [cabeceras.join(","), ...filas.map((f) => f.join(","))].join("\n");
@@ -188,9 +207,16 @@ export class ReportesService {
     let porcentajeDesvio: number | null = null;
     let estadoConciliacion: "PENDIENTE" | "CONCILIADO" | "DISCREPANCIA" = "PENDIENTE";
 
-    if (consolidado.length > 0) {
+    const raices = consolidado.filter(c => c.participaEnTotal !== false && c.unidad === input.unidad);
+    const ref = raices[0]?.consumoTemporal;
+    const comparables = raices.length > 0 && raices.every(c => c.balanceComparable !== false && (!c.consumoTemporal || (
+      c.consumoTemporal.estado === "CALCULADO" && c.consumoTemporal.cobertura === "COMPLETA"
+      && c.consumoTemporal.lecturaInicial?.fechaLectura.getTime() === ref?.lecturaInicial?.fechaLectura.getTime()
+      && c.consumoTemporal.lecturaFinal?.fechaLectura.getTime() === ref?.lecturaFinal?.fechaLectura.getTime()
+    )));
+    if (comparables) {
       // Suma de consumos netos de todos los medidores de ese recurso en la sede
-      const totalConsumoMedido = consolidado.reduce((acc, curr) => acc + curr.consumoNeto, 0);
+      const totalConsumoMedido = raices.reduce((acc, curr) => acc + curr.consumoNeto, 0);
       consumoMedido = Number(totalConsumoMedido.toFixed(2));
       diferenciaConsumo = Number((input.consumoFacturado - consumoMedido).toFixed(2));
 

@@ -1,3 +1,5 @@
+import { ConsumosService } from "../consumos/consumos.service.js";
+import { BalanceQuerySchema } from "../consumos/consumos.schema.js";
 import { FastifyInstance, FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { ZodError } from "zod";
 import { ReportesService } from "./reportes.service.js";
@@ -7,8 +9,18 @@ import {
 } from "./reportes.schema.js";
 import { DomainError } from "../../core/errors.js";
 
-export function createReportesController(service: ReportesService): FastifyPluginAsync {
+export function createReportesController(service: ReportesService, consumos?: ConsumosService): FastifyPluginAsync {
   return async (app: FastifyInstance) => {
+    if (consumos) app.get("/reportes/balances", async (request, reply) => {
+      const parsed = BalanceQuerySchema.safeParse(request.query);
+      if (!parsed.success) return reply.status(400).send({ error: "VALIDATION_ERROR", message: "Período o instalación inválidos", details: parsed.error.issues });
+      const user = (request as unknown as { user: { allowedInstalacionIds?: string[] } }).user;
+      try { return await consumos.balance(parsed.data, user.allowedInstalacionIds); }
+      catch (error) {
+        if (error instanceof DomainError) return reply.status(error.statusCode).send({ error: error.code, message: error.message });
+        throw error;
+      }
+    });
     // 1. Obtener Consumo Consolidado (JSON)
     app.get(
       "/reportes/consumos",

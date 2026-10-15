@@ -67,6 +67,11 @@ model TipoMedidor {
 }
 
 model Medidor {
+  medidorPadreId          String?
+  medidorPadre            Medidor? @relation("Remarcadores", fields: [medidorPadreId], references: [id], onDelete: Restrict)
+  remarcadores            Medidor[] @relation("Remarcadores")
+  vinculos                MedidorVinculo[] @relation("VinculoHijo")
+  vinculosComoPadre        MedidorVinculo[] @relation("VinculoPadre")
   id                      String                  @id @default(uuid())
   instalacionId           String
   tipoMedidorId           String
@@ -87,6 +92,7 @@ model Medidor {
   incidentes              IncidenteAlerta[]
   mantenimientos          RegistroMantenimiento[]
 
+  @@index([medidorPadreId])
   @@map("medidores")
 }
 
@@ -265,4 +271,18 @@ model NotificacionHistorial {
   @@index([canal, createdAt(sort: Desc)])
   @@index([evento])
   @@map("notificaciones_historial")
+}
+
+model MedidorVinculo {
+  id             String @id @default(uuid())
+  medidorId      String
+  medidorPadreId String?
+  vigenteDesde   DateTime
+  usuarioId      String
+  createdAt      DateTime @default(now())
+  medidor        Medidor @relation("VinculoHijo", fields: [medidorId], references: [id], onDelete: Restrict)
+  medidorPadre   Medidor? @relation("VinculoPadre", fields: [medidorPadreId], references: [id], onDelete: Restrict)
+  @@unique([medidorId, vigenteDesde])
+  @@index([medidorPadreId])
+  @@map("medidor_vinculos")
 }

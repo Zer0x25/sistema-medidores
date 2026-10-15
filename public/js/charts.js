@@ -124,7 +124,7 @@
     if (!canvas) return;
     const altura = opciones.altura || 260;
     const { ctx, w, h } = prepararCanvas(canvas, altura);
-    const datos = (items || []).slice(0, 12);
+    const datos = (items || []).filter(d => !d.estadoConsumo || d.estadoConsumo === "CALCULADO").slice(0, 12);
     if (datos.length === 0) {
       textoVacio(ctx, w, h, "Sin consumos acumulados registrados aún.");
       return;

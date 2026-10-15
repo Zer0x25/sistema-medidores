@@ -101,6 +101,7 @@ export type TipoMedidorResponse = z.infer<typeof TipoMedidorResponseSchema>;
 // ==============================================================================
 
 export const CrearMedidorInputSchema = z.object({
+  medidorPadreId: z.string().uuid().nullable().optional(),
   instalacionId: z.string().uuid("Identificador de instalación inválido"),
   tipoMedidorId: z.string().uuid("Identificador de tipo de medidor inválido"),
   codigo: z
@@ -164,7 +165,12 @@ export const EditarMedidorInputSchema = z.object({
 
 export type EditarMedidorInput = z.infer<typeof EditarMedidorInputSchema>;
 
+export const CambiarPadreInputSchema = z.object({ medidorPadreId: z.string().uuid().nullable() }).strict();
+export type CambiarPadreInput = z.infer<typeof CambiarPadreInputSchema>;
+
 export const MedidorResponseSchema = z.object({
+  medidorPadreId: z.string().uuid().nullable().optional(),
+  medidorPadre: z.object({ id: z.string().uuid(), codigo: z.string() }).nullable().optional(),
   id: z.string().uuid(),
   instalacionId: z.string().uuid(),
   tipoMedidorId: z.string().uuid(),
@@ -288,4 +294,12 @@ export class MedidorConLecturasNoEliminableError extends DomainError {
       { id, count }
     );
   }
+}
+
+export type JerarquiaErrorCode = "INSTALACION_NO_ASIGNADA" | "MEDIDOR_PADRE_NOT_FOUND" | "MEDIDOR_JERARQUIA_CICLICA"
+  | "MEDIDOR_PADRE_INCOMPATIBLE" | "MEDIDOR_CON_REMARCADORES_ACTIVOS"
+  | "MEDIDOR_CON_VINCULOS_NO_ELIMINABLE" | "TIPO_MEDIDOR_CON_HISTORIAL_INCOMPATIBLE"
+  | "MEDIDOR_VINCULO_CONFLICTO";
+export class JerarquiaError extends DomainError {
+  constructor(readonly code: JerarquiaErrorCode, message: string, readonly statusCode: number = 422) { super(message); }
 }

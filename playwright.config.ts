@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.BASE_URL || "http://127.0.0.1:3000";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -11,7 +13,7 @@ export default defineConfig({
     timeout: 5000,
   },
   use: {
-    baseURL: process.env.BASE_URL || "http://127.0.0.1:3000",
+    baseURL,
     extraHTTPHeaders: {
       "x-e2e-client": "playwright",
     },
@@ -26,7 +28,8 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run start:dev",
-    url: "http://127.0.0.1:3000/api/health",
+    url: new URL("/readyz", baseURL).href,
+    env: { PORT: new URL(baseURL).port || "3000" },
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },

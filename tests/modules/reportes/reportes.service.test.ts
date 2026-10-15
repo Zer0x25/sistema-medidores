@@ -68,7 +68,7 @@ describe("ReportesService Suite (Agentic TDD)", () => {
           unidad: "M3",
           tipoMedicion: "ACUMULATIVO",
           lecturas: [
-            { valor: 100.0, fechaLectura: new Date("2026-09-01T08:00:00Z") },
+            { valor: 100.0, fechaLectura: new Date("2026-09-01T00:00:00Z") },
             { valor: 150.0, fechaLectura: new Date("2026-09-15T08:00:00Z") },
             { valor: 220.0, fechaLectura: new Date("2026-09-30T18:00:00Z") },
           ],
@@ -142,7 +142,7 @@ describe("ReportesService Suite (Agentic TDD)", () => {
           unidad: "KWH",
           tipoMedicion: "INSTANTANEO",
           lecturas: [
-            { valor: 10, fechaLectura: new Date("2026-09-01T08:00:00Z") },
+            { valor: 10, fechaLectura: new Date("2026-09-01T00:00:00Z") },
             { valor: 20, fechaLectura: new Date("2026-09-15T08:00:00Z") },
             { valor: 30, fechaLectura: new Date("2026-09-30T08:00:00Z") },
           ],
@@ -170,7 +170,7 @@ describe("ReportesService Suite (Agentic TDD)", () => {
           unidad: "KWH",
           tipoMedicion: "ACUMULATIVO",
           lecturas: [
-            { valor: 1000.0, fechaLectura: new Date("2026-09-01T10:00:00Z") },
+            { valor: 1000.0, fechaLectura: new Date("2026-09-01T00:00:00Z") },
             { valor: 1450.0, fechaLectura: new Date("2026-09-30T10:00:00Z") },
           ],
         },

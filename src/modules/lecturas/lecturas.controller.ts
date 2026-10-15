@@ -1,10 +1,21 @@
+import { z } from "zod";
+import { ConsumosService } from "../consumos/consumos.service.js";
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { LecturasService } from "./lecturas.service.js";
 import { isDomainError } from "../../core/errors.js";
 import { RegistrarLecturaInput, BatchSyncLecturasInput } from "./lecturas.schema.js";
 
-export function createLecturasController(service: LecturasService): FastifyPluginAsync {
+export function createLecturasController(service: LecturasService, consumos?: ConsumosService): FastifyPluginAsync {
   return async function (fastify: FastifyInstance) {
+    if (consumos) fastify.get<{ Params: { medidorId: string } }>("/medidores/:medidorId/consumo-actual", async (request, reply) => {
+      if (!z.string().uuid().safeParse(request.params.medidorId).success) return reply.status(400).send({ error: "VALIDATION_ERROR", message: "Medidor inválido" });
+      const user = (request as unknown as { user: { allowedInstalacionIds?: string[] } }).user;
+      try { return await consumos.consumoActual(request.params.medidorId, user.allowedInstalacionIds); }
+      catch (error) {
+        if (isDomainError(error)) return reply.status(error.statusCode).send({ error: error.code, message: error.message });
+        throw error;
+      }
+    });
     fastify.post(
       "/lecturas/batch-sync",
       async (request: FastifyRequest<{ Body: BatchSyncLecturasInput }>, reply: FastifyReply) => {

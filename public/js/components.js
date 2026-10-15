@@ -224,6 +224,7 @@ function createMeterCard(medidor) {
   const meta = getResourceMeta(medidor.tipoMedidor?.recurso);
   const tipo = medidor.tipoMedidor || {};
   const ultimaLectura = medidor.ultimaLectura;
+  const consumo = medidor.consumoTemporal;
 
   const lecturaValorFormatted = ultimaLectura
     ? formatNumber(ultimaLectura.valor)
@@ -275,6 +276,13 @@ function createMeterCard(medidor) {
         </div>
       </div>
 
+      <div class="consumo-entre-lecturas" data-testid="consumo-entre-lecturas">
+        <span>Consumo entre lecturas</span>
+        <strong>${consumo?.estado === "CALCULADO" ? `${formatNumber(consumo.consumo)} ${escapeHtml(tipo.unidadMedida || tipo.unidad || "")}` : consumo?.estado === "NO_APLICA" ? "No aplica a este modo" : consumo?.estado === "NO_COMPARABLE" ? "Lecturas no comparables" : consumo?.estado === "ERROR" ? "No se pudo consultar" : "Datos insuficientes"}</strong>
+        ${consumo?.lecturaInicial ? `<small>Anterior: ${formatNumber(consumo.lecturaInicial.valor)} · ${formatDate(consumo.lecturaInicial.fechaLectura)}</small>` : ""}
+        ${consumo?.lecturaFinal ? `<small>Actual: ${formatNumber(consumo.lecturaFinal.valor)} · ${formatDate(consumo.lecturaFinal.fechaLectura)}</small>` : ""}
+        <small>${medidor.medidorPadre ? `Remarcador de ${escapeHtml(medidor.medidorPadre.codigo)}` : "Medidor principal"}</small>
+      </div>
       <button class="btn btn-primary" style="width: 100%;" onclick="openModalLectura('${medidor.id}')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 5v14M5 12h14"/>
@@ -315,8 +323,8 @@ function createConsumoCard(c) {
         </span>
       </div>
       <div class="consumo-metrics">
-        <span class="consumo-val">${formatNumber(c.consumoNeto)}</span>
-        <span class="consumo-unit">${escapeHtml(c.unidadMedida)}</span>
+        <span class="consumo-val">${c.estadoConsumo && c.estadoConsumo !== "CALCULADO" ? "Sin datos comparables" : formatNumber(c.consumoNeto)}</span>
+        <span class="consumo-unit">${escapeHtml(c.unidadMedida || c.unidad || "")}</span>
       </div>
     </div>
   `;
@@ -475,14 +483,15 @@ function createMedidorRow(medidor) {
 
   return `
     <tr data-medidor-id="${medidor.id}">
-      <td><span class="badge font-mono ${meta.badgeClass}">${escapeHtml(medidor.codigo)}</span></td>
-      <td>${escapeHtml(sedeNombre)}</td>
-      <td>${meta.icon} ${escapeHtml(tipo.nombre || tipo.recurso || "—")}</td>
-      <td>${escapeHtml(medidor.ubicacionInterna || "—")}</td>
-      <td><span class="font-mono text-muted">${escapeHtml(medidor.numeroSerie || "—")}</span></td>
-      <td>${activoBadge}</td>
-      <td>${graciaBadge}</td>
-      <td style="text-align: right; white-space: nowrap;">
+      <td data-label="Código" class="cell-stacked"><span class="badge font-mono ${meta.badgeClass}">${escapeHtml(medidor.codigo)}</span><small>${medidor.medidorPadre ? `Remarcador de ${escapeHtml(medidor.medidorPadre.codigo)}` : "Medidor principal"}</small></td>
+      <td data-label="Sede / Instalación">${escapeHtml(sedeNombre)}</td>
+      <td data-label="Recurso &amp; Tipo">${meta.icon} ${escapeHtml(tipo.nombre || tipo.recurso || "—")}</td>
+      <td data-label="Ubicación Interna">${escapeHtml(medidor.ubicacionInterna || "—")}</td>
+      <td data-label="N° Serie"><span class="font-mono text-muted">${escapeHtml(medidor.numeroSerie || "—")}</span></td>
+      <td data-label="Estado">${activoBadge}</td>
+      <td data-label="Marcha Blanca">${graciaBadge}</td>
+      <td data-label="Acciones" class="table-actions" style="text-align: right; white-space: nowrap;">
+        ${typeof currentUser !== "undefined" && currentUser?.rol === "ADMIN" ? `<button class="btn btn-xs btn-outline" data-testid="btn-cambiar-padre" onclick="abrirModalCambiarPadre('${medidor.id}')">Cambiar padre</button>` : ""}
         <button class="btn btn-xs btn-outline" onclick="abrirModalEditarMedidor('${medidor.id}')" title="Editar medidor">
           ✏️ Editar
         </button>

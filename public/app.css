@@ -495,3 +495,19 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Consumo temporal y jerarquía de remarcadores. */
+.consumo-entre-lecturas { display: flex; flex-direction: column; gap: .3rem; padding: .75rem 0; overflow-wrap: anywhere; }
+.consumo-entre-lecturas small, .consumo-detalle { display: block; color: var(--text-muted); font-size: .8rem; }
+.balance-controles { padding: 1rem; min-width: 0; }
+[data-testid="balance-sectores"] td, [data-testid="balance-sectores"] small { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+[data-testid="balance-sectores"] small { display: block; margin-top: .25rem; color: var(--text-muted); }
+[data-testid="balance-sectores"] input { min-width: 0; max-width: 100%; }
+#modalCambiarPadre .modal-box { max-height: 90dvh; overflow-y: auto; }
+#modalCambiarPadre .modal-header { position: sticky; top: 0; z-index: 2; background: var(--bg-surface); }
+#modalCambiarPadre .modal-footer { position: sticky; bottom: 0; background: var(--bg-surface); }
+@media (max-width: 767px) {
+  [data-testid="balance-sectores"] input, #modalCambiarPadre select { font-size: 16px; min-height: 44px; }
+  [data-testid="balance-sectores"] button, [data-testid="btn-cambiar-padre"] { min-height: 44px; min-width: 44px; }
+  [data-testid="balance-sectores"] .form-grid-2 { grid-template-columns: minmax(0, 1fr); }
+}

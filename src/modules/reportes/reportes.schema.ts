@@ -1,3 +1,4 @@
+import { ConsumoResponseSchema } from "../consumos/consumos.schema.js";
 import { z } from "zod";
 import { DomainError } from "../../core/errors.js";
 
@@ -58,6 +59,8 @@ export type FiltroReporteConsumo = z.infer<typeof FiltroReporteConsumoSchema>;
 
 // Fila de consumo consolidado
 export const ItemConsumoConsolidadoSchema = z.object({
+  medidorPadreId: z.string().nullable().optional(), participaEnTotal: z.boolean().optional(), balanceComparable: z.boolean().optional(),
+  consumoTemporal: ConsumoResponseSchema.optional(), estadoConsumo: z.enum(["CALCULADO", "DATOS_INSUFICIENTES", "NO_COMPARABLE", "NO_APLICA"]).optional(),
   medidorId: z.string().uuid(),
   medidorCodigo: z.string(),
   instalacionId: z.string().uuid(),
