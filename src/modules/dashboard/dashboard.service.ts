@@ -3,6 +3,10 @@ import {
   MedidorDesatendido,
   ConsumoPorInstalacion,
   ActividadRecienteLectura,
+  DashboardSerieMedidor,
+  DashboardSerieQuery,
+  InstalacionNoAsignadaError,
+  RangoFechasInvalidoError,
 } from "./dashboard.schema.js";
 
 export interface RawInstalacion {
@@ -226,6 +230,65 @@ export class DashboardService {
         operadorId: l.operadorId,
         notas: l.notas,
         observaciones: l.notas,
+      };
+    });
+  }
+
+  /**
+   * Series temporales por medidor para gráficos (feat-028, solo lectura).
+   * Filtros combinables en AND + fail-closed territorial.
+   */
+  async obtenerSeries(
+    filtro: DashboardSerieQuery,
+    allowedInstalacionIds?: string[]
+  ): Promise<DashboardSerieMedidor[]> {
+    if (filtro.fechaInicio && filtro.fechaFin && filtro.fechaInicio > filtro.fechaFin) {
+      throw new RangoFechasInvalidoError(filtro.fechaInicio, filtro.fechaFin);
+    }
+    if (
+      filtro.instalacionId &&
+      allowedInstalacionIds !== undefined &&
+      !allowedInstalacionIds.includes(filtro.instalacionId)
+    ) {
+      throw new InstalacionNoAsignadaError(filtro.instalacionId);
+    }
+
+    const data = await this.repository.getDashboardData(allowedInstalacionIds);
+    const limite = filtro.limite ?? 100;
+
+    const medidores = data.medidores.filter((m) => {
+      if (!m.activo) return false;
+      if (filtro.medidorId && m.id !== filtro.medidorId) return false;
+      if (filtro.instalacionId && m.instalacionId !== filtro.instalacionId) return false;
+      if (filtro.recurso && m.recurso !== filtro.recurso) return false;
+      return true;
+    });
+
+    return medidores.map((m) => {
+      const puntos = data.lecturas
+        .filter((l) => l.medidorId === m.id)
+        .filter((l) => {
+          const t = l.fechaLectura.getTime();
+          if (filtro.fechaInicio && t < filtro.fechaInicio.getTime()) return false;
+          if (filtro.fechaFin && t > filtro.fechaFin.getTime()) return false;
+          return true;
+        })
+        .sort((a, b) => {
+          const diff = a.fechaLectura.getTime() - b.fechaLectura.getTime();
+          if (diff !== 0) return diff;
+          return a.valor - b.valor;
+        })
+        .slice(-limite)
+        .map((l) => ({ fecha: l.fechaLectura, valor: l.valor }));
+
+      return {
+        medidorId: m.id,
+        medidorCodigo: m.codigo,
+        instalacionId: m.instalacionId,
+        instalacionNombre: m.instalacionNombre,
+        recurso: m.recurso,
+        unidad: m.unidad,
+        puntos,
       };
     });
   }

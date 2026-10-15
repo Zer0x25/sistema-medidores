@@ -528,6 +528,60 @@
         </div>
       </div>
 
+      <!-- Análisis Gráfico por Medidor / Instalación / Recurso (feat-028) -->
+      <div class="card mt-6" id="seccionGraficos" data-testid="seccion-graficos">
+        <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+          <h2 class="card-title">📊 Análisis Gráfico de Telemetría</h2>
+          <button class="btn btn-ghost btn-sm" data-testid="btn-refrescar-graficos" onclick="cargarGraficosDashboard()">Refrescar gráficos</button>
+        </div>
+        <div class="reports-filter-grid" style="padding: 0 1.25rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="filtroGraficoInstalacion" class="form-label">Sede:</label>
+            <select id="filtroGraficoInstalacion" class="form-select" data-testid="filtro-grafico-instalacion" onchange="cargarGraficosDashboard()">
+              <option value="">Todas las sedes</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="filtroGraficoMedidor" class="form-label">Medidor:</label>
+            <select id="filtroGraficoMedidor" class="form-select" data-testid="filtro-grafico-medidor" onchange="cargarGraficosDashboard()">
+              <option value="">Todos los medidores</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="filtroGraficoRecurso" class="form-label">Recurso:</label>
+            <select id="filtroGraficoRecurso" class="form-select" data-testid="filtro-grafico-recurso" onchange="cargarGraficosDashboard()">
+              <option value="">Todos</option>
+              <option value="AGUA">Agua</option>
+              <option value="LUZ">Electricidad</option>
+              <option value="GAS">Gas</option>
+              <option value="PETROLEO">Combustible</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="filtroGraficoDesde" class="form-label">Desde:</label>
+            <input type="date" id="filtroGraficoDesde" class="form-input" data-testid="filtro-grafico-desde" onchange="cargarGraficosDashboard()">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="filtroGraficoHasta" class="form-label">Hasta:</label>
+            <input type="date" id="filtroGraficoHasta" class="form-input" data-testid="filtro-grafico-hasta" onchange="cargarGraficosDashboard()">
+          </div>
+        </div>
+        <div class="charts-grid">
+          <div class="chart-card">
+            <h3 class="chart-title">Evolución por medidor</h3>
+            <canvas id="chartEvolucionMedidor" data-testid="chart-evolucion-medidor" role="img" aria-label="Gráfico de evolución de lecturas por medidor">Tu navegador no soporta canvas.</canvas>
+          </div>
+          <div class="chart-card">
+            <h3 class="chart-title">Consumo por instalación</h3>
+            <canvas id="chartConsumoInstalacion" data-testid="chart-consumo-instalacion" role="img" aria-label="Gráfico de barras de consumo por instalación">Tu navegador no soporta canvas.</canvas>
+          </div>
+          <div class="chart-card">
+            <h3 class="chart-title">Distribución por recurso</h3>
+            <canvas id="chartDistribucionRecurso" data-testid="chart-distribucion-recurso" role="img" aria-label="Gráfico de dona de medidores por recurso">Tu navegador no soporta canvas.</canvas>
+          </div>
+        </div>
+      </div>
+
       <!-- Columnas del Tablero: Alertas & Consumos -->
       <div class="dashboard-columns">
         <div class="card">
@@ -2151,6 +2205,7 @@
   <script src="/js/api.js"></script>
   <script src="/js/theme.js"></script>
   <script src="/js/components.js"></script>
+  <script src="/js/charts.js"></script>
   <script src="/js/sync-manager.js"></script>
   <script src="/app.js"></script>
 </body>

@@ -713,6 +713,13 @@ async function cargarDashboard() {
         .map((lec) => window.Components.createActivityItem(lec))
         .join("");
     }
+
+    // 5. Gráficos (feat-028): no bloquea el resto si falla
+    try {
+      await cargarGraficosDashboard({ kpis, consumos });
+    } catch (gErr) {
+      console.error("Error al cargar gráficos:", gErr);
+    }
   } catch (err) {
     console.error("Error al cargar dashboard:", err);
     window.Toast.error(err.message, "Fallo al sincronizar Dashboard");
@@ -725,6 +732,87 @@ async function cargarDashboard() {
       );
     }
   }
+}
+
+/**
+ * Carga los 3 gráficos del dashboard (feat-028, Canvas 2D nativo).
+ * Termina en silencio si el usuario es OPERADOR o si no hay canvas.
+ */
+async function poblarFiltrosGraficos() {
+  const selInst = document.getElementById("filtroGraficoInstalacion");
+  const selMed = document.getElementById("filtroGraficoMedidor");
+  if (!selInst && !selMed) return;
+  try {
+    const instalaciones = await window.api.instalaciones.getAll();
+    if (selInst) {
+      const prev = selInst.value;
+      selInst.innerHTML = '<option value="">Todas las sedes</option>';
+      instalaciones.forEach((i) => {
+        const opt = document.createElement("option");
+        opt.value = i.id;
+        opt.textContent = i.nombre;
+        selInst.appendChild(opt);
+      });
+      if (prev) selInst.value = prev;
+    }
+    const medidores = await window.api.medidores.getAll();
+    if (selMed) {
+      const prevM = selMed.value;
+      const filtroInst = selInst ? selInst.value : "";
+      selMed.innerHTML = '<option value="">Todos los medidores</option>';
+      medidores
+        .filter((m) => !filtroInst || (m.instalacionId === filtroInst || m.instalacion?.id === filtroInst))
+        .slice(0, 200)
+        .forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = `${m.codigo} (${(m.tipoMedidor && m.tipoMedidor.recurso) || ""})`;
+          selMed.appendChild(opt);
+        });
+      if (prevM) selMed.value = prevM;
+    }
+  } catch (err) {
+    console.error("Error al poblar filtros de gráficos:", err);
+  }
+}
+
+async function cargarGraficosDashboard(datosBase) {
+  const cLinea = document.getElementById("chartEvolucionMedidor");
+  const cBarras = document.getElementById("chartConsumoInstalacion");
+  const cDona = document.getElementById("chartDistribucionRecurso");
+  if (!cLinea && !cBarras && !cDona) return;
+  if (!window.Charts) return;
+
+  const selInst = document.getElementById("filtroGraficoInstalacion");
+  const selMed = document.getElementById("filtroGraficoMedidor");
+  const selRec = document.getElementById("filtroGraficoRecurso");
+  const inpDesde = document.getElementById("filtroGraficoDesde");
+  const inpHasta = document.getElementById("filtroGraficoHasta");
+
+  // Poblar selects la primera vez (conserva selección)
+  if (selInst && selInst.options.length <= 1) {
+    await poblarFiltrosGraficos();
+  }
+
+  const params = { limite: 100 };
+  if (selInst && selInst.value) params.instalacionId = selInst.value;
+  if (selMed && selMed.value) params.medidorId = selMed.value;
+  if (selRec && selRec.value) params.recurso = selRec.value;
+  if (inpDesde && inpDesde.value) params.fechaInicio = inpDesde.value;
+  if (inpHasta && inpHasta.value) params.fechaFin = inpHasta.value;
+
+  const [series, kpis, consumos] = await Promise.all([
+    window.api.dashboard.getSeries(params),
+    datosBase && datosBase.kpis ? datosBase.kpis : window.api.dashboard.getKpis(),
+    datosBase && datosBase.consumos ? datosBase.consumos : window.api.dashboard.getConsumos(),
+  ]);
+
+  window.Charts.dibujarLinea(cLinea, series);
+  window.Charts.dibujarBarras(cBarras, consumos);
+  const dist = kpis && kpis.medidoresPorRecurso
+    ? Object.entries(kpis.medidoresPorRecurso).map(([clave, valor]) => ({ clave, valor }))
+    : [];
+  window.Charts.dibujarDona(cDona, dist);
 }
 
 // ------------------------------------------------------------------------------

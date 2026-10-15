@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { DashboardService } from "./dashboard.service.js";
+import { DashboardSerieQuerySchema } from "./dashboard.schema.js";
 import { isDomainError } from "../../core/errors.js";
 
 export function createDashboardController(service: DashboardService): FastifyPluginAsync {
@@ -81,6 +82,49 @@ export function createDashboardController(service: DashboardService): FastifyPlu
           const user = (request as unknown as { user?: { allowedInstalacionIds?: string[] } }).user;
           const limit = request.query.limit ? parseInt(request.query.limit, 10) : 10;
           const result = await service.obtenerActividadReciente(limit, user?.allowedInstalacionIds);
+          return reply.status(200).send(result);
+        } catch (error) {
+          if (isDomainError(error)) {
+            return reply.status(error.statusCode).send({
+              error: error.code,
+              message: error.message,
+              details: error.details,
+            });
+          }
+          return reply.status(500).send({
+            error: "INTERNAL_SERVER_ERROR",
+            message: "Error interno del servidor",
+          });
+        }
+      }
+    );
+
+    fastify.get(
+      "/dashboard/series",
+      async (
+        request: FastifyRequest<{
+          Querystring: {
+            medidorId?: string;
+            instalacionId?: string;
+            recurso?: string;
+            fechaInicio?: string;
+            fechaFin?: string;
+            limite?: string;
+          };
+        }>,
+        reply: FastifyReply
+      ) => {
+        const parsed = DashboardSerieQuerySchema.safeParse(request.query);
+        if (!parsed.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: "Parámetros de serie inválidos",
+            details: parsed.error.format(),
+          });
+        }
+        try {
+          const user = (request as unknown as { user?: { allowedInstalacionIds?: string[] } }).user;
+          const result = await service.obtenerSeries(parsed.data, user?.allowedInstalacionIds);
           return reply.status(200).send(result);
         } catch (error) {
           if (isDomainError(error)) {

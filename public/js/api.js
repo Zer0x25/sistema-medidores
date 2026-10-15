@@ -256,6 +256,17 @@ class ApiClient {
     getDesatendidos: (horas = 24) => this.request(`/api/dashboard/desatendidos?horas=${horas}`),
     getConsumos: () => this.request("/api/dashboard/consumos"),
     getActividadReciente: (limit = 10) => this.request(`/api/dashboard/actividad-reciente?limit=${limit}`),
+    getSeries: (params = {}) => {
+      const q = new URLSearchParams();
+      if (params.medidorId) q.append("medidorId", params.medidorId);
+      if (params.instalacionId) q.append("instalacionId", params.instalacionId);
+      if (params.recurso) q.append("recurso", params.recurso);
+      if (params.fechaInicio) q.append("fechaInicio", params.fechaInicio);
+      if (params.fechaFin) q.append("fechaFin", params.fechaFin);
+      if (params.limite) q.append("limite", String(params.limite));
+      const qs = q.toString();
+      return this.request(`/api/dashboard/series${qs ? `?${qs}` : ""}`);
+    },
   };
 
   // --- Dominio: Lecturas & Telemetría ---

@@ -4,16 +4,22 @@ Este archivo actúa como **memoria persistente y tablero de control** para human
 
 ---
 
-## 🧭 Fase Actual: Demo solo en Dev + Healthcheck Real de Conectividad (feat-027)
+## 🧭 Fase Actual: Dashboard con Gráficos por Medidor e Instalación (feat-028)
 
 - **Proyecto:** `Medidores`
-- **Estado:** Estable. Botón «Cargar Datos Demo» (desktop + móvil) solo visible en dev (`devRoleSwitcher === true`, fail-closed `display:none`); `POST /api/demo/seed` bloqueado con `403 DEMO_SEED_DISABLED` en staging/production; badge `#networkStatusBadge` con healthcheck real `GET /readyz` (En línea / Modo Offline / Sin servidor / Servidor degradado, polling 30s, timeout 5s).
-- **Spec Activo:** [`specs/feat-027-demo-dev-only-y-health-real.md`](file:///home/zer0x/Escritorio/Proyects/Mi-app-test-SSD-ADR/specs/feat-027-demo-dev-only-y-health-real.md)
-- **Última verificación de Quality Gate:** Superada con código de salida 0 (338/338 tests en Vitest pasando al 100%, Typecheck y Linter limpios, 9/9 tests Playwright E2E afectados pasando).
+- **Estado:** Estable. Dashboard `#/dashboard` con sección «Análisis Gráfico»: evolución por medidor (línea), consumo por instalación (barras) y distribución por recurso (dona) en Canvas 2D nativo sin dependencias; filtros por sede/medidor/recurso/rango; endpoint `GET /api/dashboard/series` con 403 territorial y 401 sin auth; OPERADOR bloqueado (403).
+- **Spec Activo:** `specs/feat-028-dashboard-graficos-series.md`
+- **Última verificación de Quality Gate:** Superada con código de salida 0 (347/347 tests en Vitest, Typecheck y Linter limpios, 2/2 tests Playwright E2E nuevos pasando, zero-overflow 320/375/768).
 
 ---
 
 ## 📋 Registro de Hitos
+
+- [x] **Hito 15.10: Dashboard con Gráficos por Medidor e Instalación (Completado: 2026-10-13)**
+  - Spec `feat-028` bajo SDD + Agentic TDD (Fase Roja 9/9 en fallo, Fase Verde 9/9).
+  - Backend: `DashboardSerieQuerySchema` + `obtenerSeries()` (filtros AND, orden asc, capado `limite`, `RANGO_FECHAS_INVALIDO` 400, `INSTALACION_NO_ASIGNADA` 403 fail-closed) + `GET /api/dashboard/series` (400 validación, 401 sin auth, 403 OPERADOR por matriz existente).
+  - Frontend: `api.dashboard.getSeries()`, `public/js/charts.js` (línea/barras/dona en Canvas 2D nativo, sin npm install), sección `#seccionGraficos` con 5 filtros y 3 canvas con `data-testid` + ARIA, CSS `.charts-grid` responsive sin overflow (320/375/768 verificados).
+  - Verificación: `./scripts/verify.sh` salida 0 (347/347 Vitest) + 2/2 Playwright (`dashboard-graficos`) + roundtrip lectura→serie + 403 territorial en vivo.
 
 - [x] **Hito 15.9: Demo solo en Dev + Healthcheck Real (Completado: 2026-10-07)**
   - Spec `feat-027` bajo SDD + Agentic TDD (Fase Roja 1/4, Fase Verde completa).
@@ -265,8 +271,8 @@ Este archivo actúa como **memoria persistente y tablero de control** para human
 ---
 
 ## 🎯 Especificación Activa
-- **Archivo:** `specs/feat-027-demo-dev-only-y-health-real.md`
-- **Módulo objetivo:** Demo solo en dev + badge de red con healthcheck real. Completado y verificado.
+- **Archivo:** `specs/feat-028-dashboard-graficos-series.md`
+- **Módulo objetivo:** Dashboard con gráficos por medidor/instalación/recurso. Completado y verificado.
 
 ---
 
